@@ -139,4 +139,11 @@ def render(db: DatabaseConnection) -> Optional[str]:
             st.session_state["sidebar_stats"] = _get_quick_stats(db)
             st.rerun()
 
+        st.divider()
+
+        # API base URL for cross-module integration
+        st.markdown("**REST API**")
+        st.code("http://localhost:8000/api", language=None)
+        st.caption("Other modules use this URL to query patient data.")
+
     return PAGES.get(selected_page)

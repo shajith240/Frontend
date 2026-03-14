@@ -41,6 +41,7 @@ A full-stack patient demographics and visit history management system built with
 - **Language:** Python 3.13
 - **Database:** MongoDB Atlas
 - **Frontend:** Streamlit
+- **API:** FastAPI (REST endpoints for cross-module integration)
 - **ORM/ODM:** PyMongo + Pydantic v2
 - **Environment:** python-dotenv
 
@@ -93,6 +94,14 @@ streamlit run app.py
 
 The app will open at `http://localhost:8501`.
 
+### 7. (Optional) Start both Streamlit + FastAPI
+
+```bash
+./run.sh
+```
+
+This starts the FastAPI API server on `http://localhost:8000` and Streamlit on `http://localhost:8501`. API docs available at `http://localhost:8000/docs`.
+
 ## Project Structure
 
 ```
@@ -102,11 +111,13 @@ patient-demographics/
 ├── requirements.txt                 # Python dependencies
 ├── README.md                        # This file
 ├── CLAUDE.md                        # Project coding guidelines
+├── run.sh                           # Start both FastAPI + Streamlit
 ├── backend/
 │   ├── database.py                  # MongoDB connection with retry logic
 │   ├── models.py                    # Pydantic models for all entities
 │   ├── crud.py                      # CRUD operations with trigger wiring
-│   └── triggers.py                  # 5 SQL-style trigger simulations
+│   ├── triggers.py                  # 5 SQL-style trigger simulations
+│   └── api.py                       # FastAPI REST API for cross-module integration
 ├── database/
 │   ├── seed_data.py                 # Seed data generator (25 patients)
 │   └── queries/
