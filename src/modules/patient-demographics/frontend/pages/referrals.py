@@ -119,8 +119,20 @@ def _render_create_form(db: DatabaseConnection) -> None:
     """
     st.subheader("Create New Referral")
 
-    patients = _fetch_patients(db)
-    physicians = _fetch_physicians(db)
+    # Success state — show confirmation and offer to create another
+    if st.session_state.get("referral_success_id"):
+        st.success(
+            f"Referral created successfully! Referral ID: "
+            f"**{st.session_state['referral_success_id']}**"
+        )
+        if st.button("Create Another Referral", type="primary"):
+            st.session_state.pop("referral_success_id", None)
+            st.rerun()
+        return
+
+    with st.spinner("Loading patients and physicians..."):
+        patients = _fetch_patients(db)
+        physicians = _fetch_physicians(db)
 
     if not patients:
         st.warning("No active patients found. Register a patient first.")
@@ -207,28 +219,30 @@ def _render_create_form(db: DatabaseConnection) -> None:
                 st.error(error)
             return
 
-        try:
-            referral_reason = f"[{urgency.upper()}] {reason.strip()}"
+        with st.spinner("Creating referral..."):
+            try:
+                referral_reason = f"[{urgency.upper()}] {reason.strip()}"
 
-            referral = Referral(
-                referral_id=_make_referral_id(db),
-                patient_id=patient_options[selected_patient],
-                source_physician_id=source_options[selected_source],
-                target_physician_id=target_options[selected_target],
-                reason=referral_reason,
-            )
+                referral = Referral(
+                    referral_id=_make_referral_id(db),
+                    patient_id=patient_options[selected_patient],
+                    source_physician_id=source_options[selected_source],
+                    target_physician_id=target_options[selected_target],
+                    reason=referral_reason,
+                )
 
-            created_id = create_referral(
-                db, referral, performed_by="clinical_staff"
-            )
-            st.success(f"Referral created! ID: **{created_id}**")
+                created_id = create_referral(
+                    db, referral, performed_by="clinical_staff"
+                )
+                st.session_state["referral_success_id"] = created_id
+                st.rerun()
 
-        except ValueError as exc:
-            st.error(f"Referral failed: {exc}")
-        except RuntimeError as exc:
-            st.error(f"Database error: {exc}")
-        except Exception as exc:
-            st.error(f"Unexpected error: {exc}")
+            except ValueError as exc:
+                st.error(f"Referral failed: {exc}")
+            except RuntimeError as exc:
+                st.error(f"Database error: {exc}")
+            except Exception as exc:
+                st.error(f"Unexpected error: {exc}")
 
 
 def _render_referral_list(db: DatabaseConnection) -> None:
@@ -248,74 +262,75 @@ def _render_referral_list(db: DatabaseConnection) -> None:
     )
 
     try:
-        pipeline: list[dict[str, Any]] = []
+        with st.spinner("Loading referrals..."):
+            pipeline: list[dict[str, Any]] = []
 
-        if status_filter != "All":
-            pipeline.append({"$match": {"status": status_filter.lower()}})
+            if status_filter != "All":
+                pipeline.append({"$match": {"status": status_filter.lower()}})
 
-        pipeline.extend([
-            {
-                "$lookup": {
-                    "from": "patients",
-                    "localField": "patient_id",
-                    "foreignField": "patient_id",
-                    "as": "patient",
-                }
-            },
-            {"$unwind": {"path": "$patient", "preserveNullAndEmptyArrays": True}},
-            {
-                "$lookup": {
-                    "from": "physicians",
-                    "localField": "source_physician_id",
-                    "foreignField": "physician_id",
-                    "as": "source_doc",
-                }
-            },
-            {"$unwind": {"path": "$source_doc", "preserveNullAndEmptyArrays": True}},
-            {
-                "$lookup": {
-                    "from": "physicians",
-                    "localField": "target_physician_id",
-                    "foreignField": "physician_id",
-                    "as": "target_doc",
-                }
-            },
-            {"$unwind": {"path": "$target_doc", "preserveNullAndEmptyArrays": True}},
-            {
-                "$project": {
-                    "_id": 0,
-                    "referral_id": 1,
-                    "patient_name": {
-                        "$concat": ["$patient.first_name", " ", "$patient.last_name"]
-                    },
-                    "patient_id": 1,
-                    "source_physician": {
-                        "$concat": [
-                            "Dr. ",
-                            "$source_doc.first_name",
-                            " ",
-                            "$source_doc.last_name",
-                        ]
-                    },
-                    "source_speciality": "$source_doc.speciality",
-                    "target_physician": {
-                        "$concat": [
-                            "Dr. ",
-                            "$target_doc.first_name",
-                            " ",
-                            "$target_doc.last_name",
-                        ]
-                    },
-                    "target_speciality": "$target_doc.speciality",
-                    "reason": 1,
-                    "status": 1,
-                    "referral_date": 1,
-                }
-            },
-            {"$sort": {"referral_date": -1}},
-        ])
+            pipeline.extend([
+                {
+                    "$lookup": {
+                        "from": "patients",
+                        "localField": "patient_id",
+                        "foreignField": "patient_id",
+                        "as": "patient",
+                    }
+                },
+                {"$unwind": {"path": "$patient", "preserveNullAndEmptyArrays": True}},
+                {
+                    "$lookup": {
+                        "from": "physicians",
+                        "localField": "source_physician_id",
+                        "foreignField": "physician_id",
+                        "as": "source_doc",
+                    }
+                },
+                {"$unwind": {"path": "$source_doc", "preserveNullAndEmptyArrays": True}},
+                {
+                    "$lookup": {
+                        "from": "physicians",
+                        "localField": "target_physician_id",
+                        "foreignField": "physician_id",
+                        "as": "target_doc",
+                    }
+                },
+                {"$unwind": {"path": "$target_doc", "preserveNullAndEmptyArrays": True}},
+                {
+                    "$project": {
+                        "_id": 0,
+                        "referral_id": 1,
+                        "patient_name": {
+                            "$concat": ["$patient.first_name", " ", "$patient.last_name"]
+                        },
+                        "patient_id": 1,
+                        "source_physician": {
+                            "$concat": [
+                                "Dr. ",
+                                "$source_doc.first_name",
+                                " ",
+                                "$source_doc.last_name",
+                            ]
+                        },
+                        "source_speciality": "$source_doc.speciality",
+                        "target_physician": {
+                            "$concat": [
+                                "Dr. ",
+                                "$target_doc.first_name",
+                                " ",
+                                "$target_doc.last_name",
+                            ]
+                        },
+                        "target_speciality": "$target_doc.speciality",
+                        "reason": 1,
+                        "status": 1,
+                        "referral_date": 1,
+                    }
+                },
+                {"$sort": {"referral_date": -1}},
+            ])
 
-        results = list(db.get_collection("referrals").aggregate(pipeline))
+            results = list(db.get_collection("referrals").aggregate(pipeline))
 
         if not results:
             st.info("No referrals found matching the selected filter.")
@@ -358,7 +373,8 @@ def _render_network_summary(db: DatabaseConnection) -> None:
     st.subheader("Referral Network Summary")
 
     try:
-        network = get_referral_network_summary(db)
+        with st.spinner("Loading referral network..."):
+            network = get_referral_network_summary(db)
 
         if not network:
             st.info("No referral patterns found yet.")

@@ -117,6 +117,9 @@ def render(db: DatabaseConnection) -> Optional[str]:
             st.markdown(":green_circle: **Connected** to MongoDB Atlas")
         else:
             st.markdown(":red_circle: **Disconnected** from MongoDB Atlas")
+            db_error = st.session_state.get("db_error")
+            if db_error:
+                st.caption(f"Error: {db_error}")
 
         st.divider()
 

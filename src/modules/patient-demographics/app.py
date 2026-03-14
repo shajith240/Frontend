@@ -216,7 +216,8 @@ def _render_home(db: DatabaseConnection) -> None:
     st.header("Dashboard")
 
     # Metric cards
-    stats = _get_dashboard_stats(db)
+    with st.spinner("Loading dashboard metrics..."):
+        stats = _get_dashboard_stats(db)
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Patients", stats["total_patients"])

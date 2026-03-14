@@ -145,14 +145,26 @@ def _render_schedule_form(db: DatabaseConnection) -> None:
     """
     st.subheader("Schedule New Appointment")
 
-    patients = _fetch_patients(db)
-    departments = _fetch_departments(db)
+    # Success state — show confirmation and offer to schedule another
+    if st.session_state.get("appt_success_id"):
+        st.success(
+            f"Appointment scheduled successfully! Appointment ID: "
+            f"**{st.session_state['appt_success_id']}**"
+        )
+        if st.button("Schedule Another Appointment", type="primary"):
+            st.session_state.pop("appt_success_id", None)
+            st.rerun()
+        return
+
+    with st.spinner("Loading patients and departments..."):
+        patients = _fetch_patients(db)
+        departments = _fetch_departments(db)
 
     if not patients:
         st.warning("No active patients found. Register a patient first.")
         return
 
-    with st.form("schedule_appointment_form", clear_on_submit=True):
+    with st.form("schedule_appointment_form", clear_on_submit=False):
         col1, col2 = st.columns(2)
 
         with col1:
@@ -226,26 +238,28 @@ def _render_schedule_form(db: DatabaseConnection) -> None:
                 st.error(error)
             return
 
-        try:
-            appointment = Appointment(
-                appointment_id=_make_appointment_id(db),
-                patient_id=patient_options[selected_patient],
-                physician_id=physician_options[selected_physician],
-                appointment_date_and_time=appt_datetime,
-                reason=reason.strip(),
-            )
+        with st.spinner("Scheduling appointment..."):
+            try:
+                appointment = Appointment(
+                    appointment_id=_make_appointment_id(db),
+                    patient_id=patient_options[selected_patient],
+                    physician_id=physician_options[selected_physician],
+                    appointment_date_and_time=appt_datetime,
+                    reason=reason.strip(),
+                )
 
-            created_id = create_appointment(
-                db, appointment, performed_by="reception_desk"
-            )
-            st.success(f"Appointment scheduled! ID: **{created_id}**")
+                created_id = create_appointment(
+                    db, appointment, performed_by="reception_desk"
+                )
+                st.session_state["appt_success_id"] = created_id
+                st.rerun()
 
-        except ValueError as exc:
-            st.error(f"Scheduling conflict: {exc}")
-        except RuntimeError as exc:
-            st.error(f"Database error: {exc}")
-        except Exception as exc:
-            st.error(f"Unexpected error: {exc}")
+            except ValueError as exc:
+                st.error(f"Scheduling conflict: {exc}")
+            except RuntimeError as exc:
+                st.error(f"Database error: {exc}")
+            except Exception as exc:
+                st.error(f"Unexpected error: {exc}")
 
 
 def _render_existing_appointments(db: DatabaseConnection) -> None:
@@ -266,60 +280,61 @@ def _render_existing_appointments(db: DatabaseConnection) -> None:
     )
 
     try:
-        query: dict[str, Any] = {}
-        if status_filter != "All":
-            query["status"] = status_filter.lower()
+        with st.spinner("Loading appointments..."):
+            query: dict[str, Any] = {}
+            if status_filter != "All":
+                query["status"] = status_filter.lower()
 
-        # Use aggregation to join patient and physician names
-        pipeline: list[dict[str, Any]] = []
-        if query:
-            pipeline.append({"$match": query})
+            # Use aggregation to join patient and physician names
+            pipeline: list[dict[str, Any]] = []
+            if query:
+                pipeline.append({"$match": query})
 
-        pipeline.extend([
-            {
-                "$lookup": {
-                    "from": "patients",
-                    "localField": "patient_id",
-                    "foreignField": "patient_id",
-                    "as": "patient",
-                }
-            },
-            {"$unwind": {"path": "$patient", "preserveNullAndEmptyArrays": True}},
-            {
-                "$lookup": {
-                    "from": "physicians",
-                    "localField": "physician_id",
-                    "foreignField": "physician_id",
-                    "as": "physician",
-                }
-            },
-            {"$unwind": {"path": "$physician", "preserveNullAndEmptyArrays": True}},
-            {
-                "$project": {
-                    "_id": 0,
-                    "appointment_id": 1,
-                    "patient_name": {
-                        "$concat": ["$patient.first_name", " ", "$patient.last_name"]
-                    },
-                    "patient_id": 1,
-                    "physician_name": {
-                        "$concat": [
-                            "Dr. ",
-                            "$physician.first_name",
-                            " ",
-                            "$physician.last_name",
-                        ]
-                    },
-                    "speciality": "$physician.speciality",
-                    "appointment_date_and_time": 1,
-                    "reason": 1,
-                    "status": 1,
-                }
-            },
-            {"$sort": {"appointment_date_and_time": -1}},
-        ])
+            pipeline.extend([
+                {
+                    "$lookup": {
+                        "from": "patients",
+                        "localField": "patient_id",
+                        "foreignField": "patient_id",
+                        "as": "patient",
+                    }
+                },
+                {"$unwind": {"path": "$patient", "preserveNullAndEmptyArrays": True}},
+                {
+                    "$lookup": {
+                        "from": "physicians",
+                        "localField": "physician_id",
+                        "foreignField": "physician_id",
+                        "as": "physician",
+                    }
+                },
+                {"$unwind": {"path": "$physician", "preserveNullAndEmptyArrays": True}},
+                {
+                    "$project": {
+                        "_id": 0,
+                        "appointment_id": 1,
+                        "patient_name": {
+                            "$concat": ["$patient.first_name", " ", "$patient.last_name"]
+                        },
+                        "patient_id": 1,
+                        "physician_name": {
+                            "$concat": [
+                                "Dr. ",
+                                "$physician.first_name",
+                                " ",
+                                "$physician.last_name",
+                            ]
+                        },
+                        "speciality": "$physician.speciality",
+                        "appointment_date_and_time": 1,
+                        "reason": 1,
+                        "status": 1,
+                    }
+                },
+                {"$sort": {"appointment_date_and_time": -1}},
+            ])
 
-        results = list(db.get_collection("appointments").aggregate(pipeline))
+            results = list(db.get_collection("appointments").aggregate(pipeline))
 
         if not results:
             st.info("No appointments found matching the selected filter.")

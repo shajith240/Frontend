@@ -152,9 +152,10 @@ def render(db: DatabaseConnection) -> None:
     try:
         # Check if the search looks like a patient ID
         if query.upper().startswith("PAT-"):
-            patient_doc = get_patient_by_id(
-                db, query.upper(), performed_by="visit_history_page"
-            )
+            with st.spinner("Searching by Patient ID..."):
+                patient_doc = get_patient_by_id(
+                    db, query.upper(), performed_by="visit_history_page"
+                )
             if patient_doc:
                 patient_id = patient_doc["patient_id"]
             else:
@@ -162,7 +163,8 @@ def render(db: DatabaseConnection) -> None:
                 return
         else:
             # Search by name
-            results = search_patients(db, name=query, is_active=None, limit=10)
+            with st.spinner("Searching patients..."):
+                results = search_patients(db, name=query, is_active=None, limit=10)
             if not results:
                 st.warning(f"No patients found matching '{query}'")
                 return
@@ -186,7 +188,8 @@ def render(db: DatabaseConnection) -> None:
             return
 
         # Fetch complete profile using the aggregation pipeline
-        profile = get_patient_full_profile(db, patient_id)
+        with st.spinner("Loading patient profile..."):
+            profile = get_patient_full_profile(db, patient_id)
         if not profile:
             st.error(f"Could not load full profile for {patient_id}")
             return
