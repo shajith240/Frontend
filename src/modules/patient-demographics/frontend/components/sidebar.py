@@ -23,10 +23,12 @@ load_dotenv()
 
 # Page registry — maps display names to page module keys
 PAGES: dict[str, str] = {
+    "Home": "home",
     "Register Patient": "register_patient",
     "Visit History": "visit_history",
     "Appointments": "appointments",
     "Referrals": "referrals",
+    "DBMS Demo": "dbms_demo",
 }
 
 
