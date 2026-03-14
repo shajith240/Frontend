@@ -169,20 +169,20 @@ def render(db: DatabaseConnection) -> None:
                 st.warning(f"No patients found matching '{query}'")
                 return
 
-            if len(results) == 1:
-                patient_id = results[0]["patient_id"]
-            else:
-                # Show selection dropdown for multiple matches
-                options = {
-                    f"{r['first_name']} {r['last_name']} ({r['patient_id']})": r["patient_id"]
-                    for r in results
-                }
-                selected = st.selectbox(
-                    "Multiple patients found — select one:",
-                    options=list(options.keys()),
-                )
-                if selected:
-                    patient_id = options[selected]
+            # Always show dropdown so the user can confirm the right patient,
+            # even when there is only one match (handles same-name patients).
+            options = {
+                f"{r['first_name']} {r['last_name']} ({r['patient_id']})": r["patient_id"]
+                for r in results
+            }
+            label = (
+                f"{len(results)} patient(s) found — confirm selection:"
+                if len(results) == 1
+                else f"{len(results)} patients found — select one:"
+            )
+            selected = st.selectbox(label, options=list(options.keys()))
+            if selected:
+                patient_id = options[selected]
 
         if not patient_id:
             return

@@ -173,10 +173,24 @@ def search_patients(
     try:
         query: dict[str, Any] = {}
         if name:
-            query["$or"] = [
-                {"first_name": {"$regex": name, "$options": "i"}},
-                {"last_name": {"$regex": name, "$options": "i"}},
-            ]
+            # Split into words so full-name queries like "Aarav Patel" work.
+            # Each word must match either first_name or last_name.
+            words = name.strip().split()
+            if len(words) > 1:
+                query["$and"] = [
+                    {
+                        "$or": [
+                            {"first_name": {"$regex": word, "$options": "i"}},
+                            {"last_name": {"$regex": word, "$options": "i"}},
+                        ]
+                    }
+                    for word in words
+                ]
+            else:
+                query["$or"] = [
+                    {"first_name": {"$regex": name, "$options": "i"}},
+                    {"last_name": {"$regex": name, "$options": "i"}},
+                ]
         if phone:
             query["phone"] = phone
         if is_active is not None:
