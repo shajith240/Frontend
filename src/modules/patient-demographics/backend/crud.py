@@ -1,9 +1,16 @@
-"""PyMongo CRUD operations for all 6 patient-demographics collections.
+"""PyMongo CRUD operations for all patient-demographics collections.
 
-Each function receives a connected DatabaseConnection instance so the caller
-controls the connection lifecycle (FastAPI lifespan, Streamlit session, tests).
-All write operations also append a record to audit_logs for Master DB traceability
-as required by the project architecture (Module DB → Category Views → Master DB).
+All write operations fire the relevant triggers automatically — callers never
+need to invoke trigger functions directly, mirroring how SQL triggers work.
+
+Trigger wiring:
+  create_patient      → age_calculator_trigger, audit_log_trigger
+  get_patient_by_id   → audit_log_trigger (READ)
+  update_patient      → audit_log_trigger (UPDATE, with before/after diff)
+  create_visit        → audit_log_trigger, visit_frequency_alert_trigger,
+                        abnormal_vitals_trigger (when vital_signs present)
+  create_appointment  → appointment_conflict_trigger, audit_log_trigger
+  create_referral     → audit_log_trigger
 """
 
 from datetime import datetime
@@ -14,99 +21,25 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from backend.database import DatabaseConnection
 from backend.models import (
-    Alert,
     Appointment,
     AppointmentStatus,
     AuditAction,
-    AuditLog,
+    Department,
     Patient,
+    Physician,
     Referral,
     ReferralStatus,
     Visit,
+    VisitDepartment,
 )
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _serialize(doc: dict) -> dict:
-    """Convert a Pydantic model dict into a MongoDB-safe document.
-
-    Replaces date objects with datetime so PyMongo can store them, and removes
-    None values to keep documents compact.
-
-    Args:
-        doc: A dict produced by ``model.model_dump()``.
-
-    Returns:
-        A cleaned dict ready for insertion into MongoDB.
-    """
-    result: dict = {}
-    for key, value in doc.items():
-        if value is None:
-            continue
-        # date → datetime (MongoDB has no native date-only type)
-        if hasattr(value, "year") and not isinstance(value, datetime):
-            value = datetime(value.year, value.month, value.day)
-        elif isinstance(value, dict):
-            value = _serialize(value)
-        elif isinstance(value, list):
-            value = [
-                _serialize(item) if isinstance(item, dict) else item
-                for item in value
-            ]
-        result[key] = value
-    return result
-
-
-def _write_audit(
-    db: DatabaseConnection,
-    *,
-    patient_id: str,
-    action: AuditAction,
-    collection_name: str,
-    document_id: str,
-    performed_by: str,
-    performed_by_role: str,
-    changes: Optional[dict] = None,
-    ip_address: Optional[str] = None,
-) -> None:
-    """Append a record to audit_logs.
-
-    Failures are logged to stdout but never raised — audit writes must not
-    break the primary operation.
-
-    Args:
-        db: Active DatabaseConnection.
-        patient_id: The patient this action relates to.
-        action: CREATE, READ, UPDATE, or DELETE.
-        collection_name: MongoDB collection that was touched.
-        document_id: ID of the document affected.
-        performed_by: User or system identifier.
-        performed_by_role: Role of the actor (e.g. 'doctor', 'system').
-        changes: Optional before/after diff dict.
-        ip_address: Optional client IP.
-    """
-    try:
-        log_id = (
-            f"LOG-{datetime.utcnow().strftime('%Y')}-"
-            f"{datetime.utcnow().strftime('%f')[:6]}"
-        )
-        log = AuditLog(
-            log_id=log_id,
-            patient_id=patient_id,
-            action=action,
-            collection_name=collection_name,
-            document_id=document_id,
-            performed_by=performed_by,
-            performed_by_role=performed_by_role,
-            changes=changes,
-            ip_address=ip_address,
-        )
-        db.get_collection("audit_logs").insert_one(_serialize(log.model_dump()))
-    except Exception as exc:
-        print(f"[audit] Warning: could not write audit log: {exc}")
+from backend.triggers import (
+    age_calculator_trigger,
+    abnormal_vitals_trigger,
+    appointment_conflict_trigger,
+    audit_log_trigger,
+    visit_frequency_alert_trigger,
+    _serialize_doc,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +55,9 @@ def create_patient(
 ) -> str:
     """Insert a new patient document into the 'patients' collection.
 
+    Fires age_calculator_trigger before insertion to populate the age field,
+    then fires audit_log_trigger after successful insertion.
+
     Args:
         db: Active DatabaseConnection.
         patient: Validated Patient Pydantic model.
@@ -136,9 +72,15 @@ def create_patient(
         RuntimeError: On unexpected database error.
     """
     try:
-        doc = _serialize(patient.model_dump())
+        doc = _serialize_doc(patient.model_dump())
+
+        # TRIGGER: age_calculator_trigger — compute and stamp age before insert
+        doc["age"] = age_calculator_trigger(patient.date_of_birth)
+
         db.get_collection("patients").insert_one(doc)
-        _write_audit(
+
+        # TRIGGER: audit_log_trigger — log the CREATE action
+        audit_log_trigger(
             db,
             patient_id=patient.patient_id,
             action=AuditAction.CREATE,
@@ -165,6 +107,8 @@ def get_patient_by_id(
 ) -> Optional[dict]:
     """Fetch a single patient document by patient_id.
 
+    Fires audit_log_trigger (READ) when a matching document is found.
+
     Args:
         db: Active DatabaseConnection.
         patient_id: The PAT-YYYY-NNN identifier to look up.
@@ -183,7 +127,8 @@ def get_patient_by_id(
             {"patient_id": patient_id}, {"_id": 0}
         )
         if doc:
-            _write_audit(
+            # TRIGGER: audit_log_trigger — log the READ action
+            audit_log_trigger(
                 db,
                 patient_id=patient_id,
                 action=AuditAction.READ,
@@ -202,27 +147,25 @@ def search_patients(
     *,
     name: Optional[str] = None,
     phone: Optional[str] = None,
-    department: Optional[str] = None,
     is_active: Optional[bool] = True,
     limit: int = 50,
     skip: int = 0,
 ) -> list[dict]:
     """Search patients by name substring, phone, or active status.
 
-    All provided filters are combined with AND logic. Partial, case-insensitive
-    name matching is supported via a regex filter.
+    All filters are combined with AND logic. Name matching is
+    case-insensitive substring search across first_name and last_name.
 
     Args:
         db: Active DatabaseConnection.
         name: Optional substring to match against first_name + last_name.
         phone: Optional exact phone number filter.
-        department: Unused at patient level — included for future FK joins.
         is_active: Filter by active status (default True). Pass None to skip.
-        limit: Maximum number of results to return (default 50, max 200).
+        limit: Maximum results to return (default 50, max 200).
         skip: Number of documents to skip for pagination.
 
     Returns:
-        List of matching patient dicts (without ``_id``).
+        List of matching patient dicts (without ``_id``), sorted by last_name.
 
     Raises:
         RuntimeError: On unexpected database error.
@@ -261,9 +204,8 @@ def update_patient(
 ) -> bool:
     """Apply a partial update to an existing patient document.
 
-    Automatically stamps ``updated_at`` to the current UTC time.
-    Raises ValueError if the caller tries to overwrite ``patient_id`` or
-    ``created_at`` (immutable fields).
+    Automatically stamps updated_at. Fires audit_log_trigger with a
+    before/after diff when the document is successfully modified.
 
     Args:
         db: Active DatabaseConnection.
@@ -284,8 +226,14 @@ def update_patient(
     if bad_keys:
         raise ValueError(f"Cannot update immutable field(s): {bad_keys}")
 
+    # If date_of_birth is being updated, recompute age via trigger
+    if "date_of_birth" in updates:
+        dob = updates["date_of_birth"]
+        if hasattr(dob, "year") and not isinstance(dob, datetime):
+            # TRIGGER: age_calculator_trigger — recompute age on DOB change
+            updates["age"] = age_calculator_trigger(dob)
+
     try:
-        # Capture before-state for audit diff
         before = db.get_collection("patients").find_one(
             {"patient_id": patient_id}, {"_id": 0}
         )
@@ -298,12 +246,9 @@ def update_patient(
         )
 
         if result.modified_count > 0:
-            changes = {
-                field: {"before": before.get(field), "after": updates[field]}
-                for field in updates
-                if field != "updated_at"
-            }
-            _write_audit(
+            after = {**before, **updates}
+            # TRIGGER: audit_log_trigger — log UPDATE with before/after diff
+            audit_log_trigger(
                 db,
                 patient_id=patient_id,
                 action=AuditAction.UPDATE,
@@ -311,12 +256,137 @@ def update_patient(
                 document_id=patient_id,
                 performed_by=performed_by,
                 performed_by_role=performed_by_role,
-                changes=changes,
+                before=before,
+                after=after,
             )
             return True
         return False
     except PyMongoError as exc:
         raise RuntimeError(f"Database error while updating patient: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Physicians
+# ---------------------------------------------------------------------------
+
+def create_physician(
+    db: DatabaseConnection,
+    physician: Physician,
+) -> str:
+    """Insert a new physician document into the 'physicians' collection.
+
+    Verifies the referenced department exists before inserting.
+
+    Args:
+        db: Active DatabaseConnection.
+        physician: Validated Physician Pydantic model.
+
+    Returns:
+        The physician_id of the newly created physician.
+
+    Raises:
+        ValueError: If the department does not exist or physician_id is duplicate.
+        RuntimeError: On unexpected database error.
+    """
+    try:
+        dept_exists = db.get_collection("departments").find_one(
+            {"department_id": physician.department_id}, {"_id": 1}
+        )
+        if not dept_exists:
+            raise ValueError(
+                f"Cannot create physician: department '{physician.department_id}' "
+                "does not exist."
+            )
+        doc = _serialize_doc(physician.model_dump())
+        db.get_collection("physicians").insert_one(doc)
+        return physician.physician_id
+    except DuplicateKeyError:
+        raise ValueError(
+            f"Physician with physician_id='{physician.physician_id}' already exists."
+        )
+    except PyMongoError as exc:
+        raise RuntimeError(f"Database error while creating physician: {exc}") from exc
+
+
+def get_physician_by_id(
+    db: DatabaseConnection,
+    physician_id: str,
+) -> Optional[dict]:
+    """Fetch a single physician document by physician_id.
+
+    Args:
+        db: Active DatabaseConnection.
+        physician_id: The physician identifier to look up.
+
+    Returns:
+        The physician document (without ``_id``), or None if not found.
+
+    Raises:
+        RuntimeError: On unexpected database error.
+    """
+    try:
+        return db.get_collection("physicians").find_one(
+            {"physician_id": physician_id}, {"_id": 0}
+        )
+    except PyMongoError as exc:
+        raise RuntimeError(f"Database error while fetching physician: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Departments
+# ---------------------------------------------------------------------------
+
+def create_department(
+    db: DatabaseConnection,
+    department: Department,
+) -> str:
+    """Insert a new department document into the 'departments' collection.
+
+    Args:
+        db: Active DatabaseConnection.
+        department: Validated Department Pydantic model.
+
+    Returns:
+        The department_id of the newly created department.
+
+    Raises:
+        ValueError: If a department with the same department_id already exists.
+        RuntimeError: On unexpected database error.
+    """
+    try:
+        doc = _serialize_doc(department.model_dump())
+        db.get_collection("departments").insert_one(doc)
+        return department.department_id
+    except DuplicateKeyError:
+        raise ValueError(
+            f"Department with department_id='{department.department_id}' already exists."
+        )
+    except PyMongoError as exc:
+        raise RuntimeError(f"Database error while creating department: {exc}") from exc
+
+
+def get_department_by_id(
+    db: DatabaseConnection,
+    department_id: str,
+) -> Optional[dict]:
+    """Fetch a single department document by department_id.
+
+    Args:
+        db: Active DatabaseConnection.
+        department_id: The department identifier to look up.
+
+    Returns:
+        The department document (without ``_id``), or None if not found.
+
+    Raises:
+        RuntimeError: On unexpected database error.
+    """
+    try:
+        return db.get_collection("departments").find_one(
+            {"department_id": department_id}, {"_id": 0}
+        )
+    except PyMongoError as exc:
+        raise RuntimeError(f"Database error while fetching department: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +402,9 @@ def create_visit(
 ) -> str:
     """Insert a new visit document into the 'visits' collection.
 
-    Verifies the referenced patient exists before inserting.
+    Verifies both patient and physician exist. Fires three triggers after
+    successful insertion: audit_log_trigger, visit_frequency_alert_trigger,
+    and abnormal_vitals_trigger (only when vital_signs are present).
 
     Args:
         db: Active DatabaseConnection.
@@ -344,7 +416,7 @@ def create_visit(
         The visit_id of the newly created visit.
 
     Raises:
-        ValueError: If the patient_id does not exist or visit_id is duplicate.
+        ValueError: If the patient or physician does not exist, or visit_id is duplicate.
         RuntimeError: On unexpected database error.
     """
     try:
@@ -356,9 +428,19 @@ def create_visit(
                 f"Cannot create visit: patient '{visit.patient_id}' does not exist."
             )
 
-        doc = _serialize(visit.model_dump())
+        physician_exists = db.get_collection("physicians").find_one(
+            {"physician_id": visit.physician_id}, {"_id": 1}
+        )
+        if not physician_exists:
+            raise ValueError(
+                f"Cannot create visit: physician '{visit.physician_id}' does not exist."
+            )
+
+        doc = _serialize_doc(visit.model_dump())
         db.get_collection("visits").insert_one(doc)
-        _write_audit(
+
+        # TRIGGER: audit_log_trigger — log the CREATE action
+        audit_log_trigger(
             db,
             patient_id=visit.patient_id,
             action=AuditAction.CREATE,
@@ -367,6 +449,16 @@ def create_visit(
             performed_by=performed_by,
             performed_by_role=performed_by_role,
         )
+
+        # TRIGGER: visit_frequency_alert_trigger — alert if >3 visits in 30 days
+        visit_frequency_alert_trigger(db, visit.patient_id, visit.visit_id)
+
+        # TRIGGER: abnormal_vitals_trigger — alert on out-of-range vitals
+        if visit.vital_signs is not None:
+            abnormal_vitals_trigger(
+                db, visit.patient_id, visit.visit_id, visit.vital_signs
+            )
+
         return visit.visit_id
     except DuplicateKeyError:
         raise ValueError(f"Visit with visit_id='{visit.visit_id}' already exists.")
@@ -382,17 +474,17 @@ def get_patient_visits(
     skip: int = 0,
     sort_desc: bool = True,
 ) -> list[dict]:
-    """Return visit history for a patient, sorted by visit date.
+    """Return visit history for a patient, sorted by visit_date.
 
     Args:
         db: Active DatabaseConnection.
         patient_id: The PAT-YYYY-NNN identifier.
-        limit: Maximum number of visits to return (default 20, max 100).
+        limit: Maximum visits to return (default 20, max 100).
         skip: Number of documents to skip for pagination.
-        sort_desc: If True, newest visits are returned first.
+        sort_desc: Newest visits first when True (default).
 
     Returns:
-        List of visit dicts (without ``_id``), ordered by visit_date.
+        List of visit dicts (without ``_id``).
 
     Raises:
         RuntimeError: On unexpected database error.
@@ -412,6 +504,55 @@ def get_patient_visits(
 
 
 # ---------------------------------------------------------------------------
+# VisitDepartment (junction)
+# ---------------------------------------------------------------------------
+
+def link_visit_department(
+    db: DatabaseConnection,
+    visit_department: VisitDepartment,
+) -> None:
+    """Insert a VisitDepartment junction record to associate a visit with a department.
+
+    Verifies both visit and department exist before inserting. Resolves the
+    Visit ↔ Department M-to-N relationship from the ER diagram.
+
+    Args:
+        db: Active DatabaseConnection.
+        visit_department: Validated VisitDepartment junction model.
+
+    Raises:
+        ValueError: If the visit or department does not exist, or link already exists.
+        RuntimeError: On unexpected database error.
+    """
+    try:
+        visit_exists = db.get_collection("visits").find_one(
+            {"visit_id": visit_department.visit_id}, {"_id": 1}
+        )
+        if not visit_exists:
+            raise ValueError(
+                f"Cannot link: visit '{visit_department.visit_id}' does not exist."
+            )
+
+        dept_exists = db.get_collection("departments").find_one(
+            {"department_id": visit_department.department_id}, {"_id": 1}
+        )
+        if not dept_exists:
+            raise ValueError(
+                f"Cannot link: department '{visit_department.department_id}' does not exist."
+            )
+
+        doc = _serialize_doc(visit_department.model_dump())
+        db.get_collection("visit_departments").insert_one(doc)
+    except DuplicateKeyError:
+        raise ValueError(
+            f"Link between visit '{visit_department.visit_id}' and department "
+            f"'{visit_department.department_id}' already exists."
+        )
+    except PyMongoError as exc:
+        raise RuntimeError(f"Database error while linking visit to department: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
 # Appointments
 # ---------------------------------------------------------------------------
 
@@ -424,7 +565,8 @@ def create_appointment(
 ) -> str:
     """Insert a new appointment into the 'appointments' collection.
 
-    Verifies the referenced patient exists before inserting.
+    Fires appointment_conflict_trigger BEFORE insertion to block double-booking,
+    then fires audit_log_trigger after successful insertion.
 
     Args:
         db: Active DatabaseConnection.
@@ -436,7 +578,8 @@ def create_appointment(
         The appointment_id of the newly created appointment.
 
     Raises:
-        ValueError: If the patient does not exist or appointment_id is duplicate.
+        ValueError: If the patient/physician doesn't exist, appointment_id is
+            duplicate, or physician has a scheduling conflict.
         RuntimeError: On unexpected database error.
     """
     try:
@@ -449,9 +592,27 @@ def create_appointment(
                 "does not exist."
             )
 
-        doc = _serialize(appointment.model_dump())
+        physician_exists = db.get_collection("physicians").find_one(
+            {"physician_id": appointment.physician_id}, {"_id": 1}
+        )
+        if not physician_exists:
+            raise ValueError(
+                f"Cannot create appointment: physician '{appointment.physician_id}' "
+                "does not exist."
+            )
+
+        # TRIGGER: appointment_conflict_trigger — block double-booking BEFORE insert
+        appointment_conflict_trigger(
+            db,
+            appointment.physician_id,
+            appointment.appointment_date_and_time,
+        )
+
+        doc = _serialize_doc(appointment.model_dump())
         db.get_collection("appointments").insert_one(doc)
-        _write_audit(
+
+        # TRIGGER: audit_log_trigger — log the CREATE action
+        audit_log_trigger(
             db,
             patient_id=appointment.patient_id,
             action=AuditAction.CREATE,
@@ -488,13 +649,14 @@ def get_appointments(
         db: Active DatabaseConnection.
         patient_id: The PAT-YYYY-NNN identifier.
         status: Optional filter by AppointmentStatus enum value.
-        from_date: Optional lower bound for scheduled_at (inclusive).
-        to_date: Optional upper bound for scheduled_at (inclusive).
+        from_date: Optional lower bound for appointment_date_and_time (inclusive).
+        to_date: Optional upper bound for appointment_date_and_time (inclusive).
         limit: Maximum results to return (default 20, max 100).
         skip: Number of documents to skip for pagination.
 
     Returns:
-        List of appointment dicts (without ``_id``), ordered by scheduled_at.
+        List of appointment dicts (without ``_id``), sorted by
+        appointment_date_and_time ascending.
 
     Raises:
         RuntimeError: On unexpected database error.
@@ -509,12 +671,12 @@ def get_appointments(
                 date_filter["$gte"] = from_date
             if to_date:
                 date_filter["$lte"] = to_date
-            query["scheduled_at"] = date_filter
+            query["appointment_date_and_time"] = date_filter
 
         cursor = (
             db.get_collection("appointments")
             .find(query, {"_id": 0})
-            .sort("scheduled_at", ASCENDING)
+            .sort("appointment_date_and_time", ASCENDING)
             .skip(skip)
             .limit(min(limit, 100))
         )
@@ -538,7 +700,8 @@ def create_referral(
 ) -> str:
     """Insert a new referral into the 'referrals' collection.
 
-    Verifies the referenced patient exists before inserting.
+    Verifies the patient, source physician, and target physician all exist.
+    Fires audit_log_trigger after successful insertion.
 
     Args:
         db: Active DatabaseConnection.
@@ -550,7 +713,7 @@ def create_referral(
         The referral_id of the newly created referral.
 
     Raises:
-        ValueError: If the patient does not exist or referral_id is duplicate.
+        ValueError: If the patient/physicians don't exist or referral_id is duplicate.
         RuntimeError: On unexpected database error.
     """
     try:
@@ -559,13 +722,27 @@ def create_referral(
         )
         if not patient_exists:
             raise ValueError(
-                f"Cannot create referral: patient '{referral.patient_id}' "
-                "does not exist."
+                f"Cannot create referral: patient '{referral.patient_id}' does not exist."
             )
 
-        doc = _serialize(referral.model_dump())
+        for role, physician_id in [
+            ("source", referral.source_physician_id),
+            ("target", referral.target_physician_id),
+        ]:
+            phy_exists = db.get_collection("physicians").find_one(
+                {"physician_id": physician_id}, {"_id": 1}
+            )
+            if not phy_exists:
+                raise ValueError(
+                    f"Cannot create referral: {role} physician '{physician_id}' "
+                    "does not exist."
+                )
+
+        doc = _serialize_doc(referral.model_dump())
         db.get_collection("referrals").insert_one(doc)
-        _write_audit(
+
+        # TRIGGER: audit_log_trigger — log the CREATE action
+        audit_log_trigger(
             db,
             patient_id=referral.patient_id,
             action=AuditAction.CREATE,
@@ -588,22 +765,24 @@ def get_referrals(
     patient_id: str,
     *,
     status: Optional[ReferralStatus] = None,
-    referred_to_department: Optional[str] = None,
+    source_physician_id: Optional[str] = None,
+    target_physician_id: Optional[str] = None,
     limit: int = 20,
     skip: int = 0,
 ) -> list[dict]:
-    """Return referrals for a patient with optional status and department filters.
+    """Return referrals for a patient with optional filters.
 
     Args:
         db: Active DatabaseConnection.
         patient_id: The PAT-YYYY-NNN identifier.
         status: Optional filter by ReferralStatus enum value.
-        referred_to_department: Optional filter by destination department.
+        source_physician_id: Optional filter by referring physician.
+        target_physician_id: Optional filter by specialist receiving the referral.
         limit: Maximum results to return (default 20, max 100).
         skip: Number of documents to skip for pagination.
 
     Returns:
-        List of referral dicts (without ``_id``), ordered by referral_date descending.
+        List of referral dicts (without ``_id``), sorted by referral_date descending.
 
     Raises:
         RuntimeError: On unexpected database error.
@@ -612,11 +791,10 @@ def get_referrals(
         query: dict[str, Any] = {"patient_id": patient_id}
         if status:
             query["status"] = status.value
-        if referred_to_department:
-            query["referred_to_department"] = {
-                "$regex": referred_to_department,
-                "$options": "i",
-            }
+        if source_physician_id:
+            query["source_physician_id"] = source_physician_id
+        if target_physician_id:
+            query["target_physician_id"] = target_physician_id
 
         cursor = (
             db.get_collection("referrals")

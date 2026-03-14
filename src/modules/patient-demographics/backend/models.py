@@ -1,4 +1,13 @@
-"""Pydantic models for all 6 MongoDB collections in the patient demographics module."""
+"""Pydantic models for all collections in the patient-demographics module.
+
+Entity structure mirrors the submitted ER diagram exactly:
+  Patient ──< Appointment >── Physician >── Department
+  Patient ──< Visit       >── Physician
+  Visit   ><  Department  (via VisitDepartment junction)
+  Patient ──< Referral (SourcePhysician, TargetPhysician)
+
+Additional models for operational support: Alert, AuditLog.
+"""
 
 import re
 from datetime import date, datetime
@@ -35,8 +44,17 @@ class BloodGroup(str, Enum):
     UNKNOWN = "unknown"
 
 
+class VisitStatus(str, Enum):
+    """Lifecycle states for a clinical visit (ER: Visit.Status)."""
+
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    DISCHARGED = "discharged"
+    CANCELLED = "cancelled"
+
+
 class AppointmentStatus(str, Enum):
-    """Lifecycle states for an appointment."""
+    """Lifecycle states for an appointment (ER: Appointment.Status)."""
 
     SCHEDULED = "scheduled"
     CONFIRMED = "confirmed"
@@ -46,7 +64,7 @@ class AppointmentStatus(str, Enum):
 
 
 class ReferralStatus(str, Enum):
-    """Lifecycle states for a referral."""
+    """Lifecycle states for a referral (ER: Referral.Status)."""
 
     PENDING = "pending"
     ACCEPTED = "accepted"
@@ -55,7 +73,7 @@ class ReferralStatus(str, Enum):
 
 
 class AlertSeverity(str, Enum):
-    """Clinical urgency of an alert."""
+    """Clinical urgency of a system-generated alert."""
 
     LOW = "low"
     MEDIUM = "medium"
@@ -64,18 +82,19 @@ class AlertSeverity(str, Enum):
 
 
 class AlertType(str, Enum):
-    """Category of clinical alert."""
+    """Category of a system-generated alert."""
 
     ALLERGY = "allergy"
     DRUG_INTERACTION = "drug_interaction"
     ABNORMAL_VITALS = "abnormal_vitals"
+    VISIT_FREQUENCY = "visit_frequency"
     LAB_RESULT = "lab_result"
     FOLLOW_UP = "follow_up"
     OTHER = "other"
 
 
 class AuditAction(str, Enum):
-    """Database operation recorded in the audit log."""
+    """Database operation captured in audit_logs."""
 
     CREATE = "create"
     READ = "read"
@@ -84,14 +103,14 @@ class AuditAction(str, Enum):
 
 
 # ---------------------------------------------------------------------------
-# Shared validators
+# Shared ID format validator
 # ---------------------------------------------------------------------------
 
 PATIENT_ID_PATTERN = re.compile(r"^PAT-\d{4}-\d{3}$")
 
 
 def validate_patient_id(value: str) -> str:
-    """Validate that a patient_id matches the PAT-YYYY-NNN format.
+    """Validate that a value matches the PAT-YYYY-NNN format.
 
     Args:
         value: The patient ID string to validate.
@@ -114,7 +133,7 @@ def validate_patient_id(value: str) -> str:
 # ---------------------------------------------------------------------------
 
 class Address(BaseModel):
-    """Physical address of a patient."""
+    """Physical address (ER: Patient.Address — stored as embedded document)."""
 
     street: str = Field(..., description="Street address including house/flat number")
     city: str = Field(..., description="City or town")
@@ -123,8 +142,17 @@ class Address(BaseModel):
     country: str = Field(default="India", description="Country name")
 
 
+class InsuranceInfo(BaseModel):
+    """Insurance details (ER: Patient.Insurance — stored as embedded document)."""
+
+    provider: str = Field(..., description="Name of the insurance provider")
+    policy_number: str = Field(..., description="Policy number issued by the provider")
+    group_number: Optional[str] = Field(None, description="Group / employer plan number")
+    valid_until: Optional[date] = Field(None, description="Policy expiry date")
+
+
 class EmergencyContact(BaseModel):
-    """Emergency contact details for a patient."""
+    """Emergency contact for a patient (supplementary operational field)."""
 
     name: str = Field(..., description="Full name of the emergency contact")
     relationship: str = Field(..., description="Relationship to the patient (e.g. spouse)")
@@ -132,7 +160,12 @@ class EmergencyContact(BaseModel):
 
 
 class VitalSigns(BaseModel):
-    """Vital signs recorded during a clinical visit."""
+    """Vital signs recorded during a visit.
+
+    Not a separate ER entity but carried inside Visit documents so that
+    the abnormal_vitals_trigger can evaluate them automatically.
+    Normal clinical ranges are enforced at the trigger layer, not here.
+    """
 
     blood_pressure_systolic: Optional[int] = Field(
         None, ge=50, le=300, description="Systolic BP in mmHg"
@@ -155,31 +188,40 @@ class VitalSigns(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Collection models
+# ER entities — core collection models
 # ---------------------------------------------------------------------------
 
 class Patient(BaseModel):
-    """Document model for the 'patients' MongoDB collection.
+    """Document model for the 'patients' collection.
 
-    Stores all demographic information for a registered patient.
-    patient_id is the universal foreign key used across all collections.
+    ER attributes: PatientID, FirstName, LastName, DateOfBirth, Gender,
+    Phone, Email, Address, Insurance.
+    Additional operational fields: BloodGroup, EmergencyContact, allergies,
+    chronic_conditions, current_medications, age (computed by trigger).
     """
 
     patient_id: str = Field(
         ...,
-        description="Unique patient identifier in PAT-YYYY-NNN format",
+        description="ER: PatientID — unique identifier in PAT-YYYY-NNN format",
         examples=["PAT-2024-001"],
     )
-    first_name: str = Field(..., min_length=1, description="Patient's first / given name")
-    last_name: str = Field(..., min_length=1, description="Patient's last / family name")
-    date_of_birth: date = Field(..., description="Date of birth (YYYY-MM-DD)")
-    gender: Gender = Field(..., description="Patient's gender")
+    first_name: str = Field(..., min_length=1, description="ER: FirstName")
+    last_name: str = Field(..., min_length=1, description="ER: LastName")
+    date_of_birth: date = Field(..., description="ER: DateOfBirth (YYYY-MM-DD)")
+    gender: Gender = Field(..., description="ER: Gender")
+    phone: str = Field(..., description="ER: Phone — primary contact number")
+    email: Optional[str] = Field(None, description="ER: Email")
+    address: Optional[Address] = Field(None, description="ER: Address (embedded)")
+    insurance: Optional[InsuranceInfo] = Field(
+        None, description="ER: Insurance (embedded)"
+    )
+    # Computed by age_calculator_trigger on every insert — never set by caller
+    age: Optional[int] = Field(
+        None, ge=0, le=150, description="Age in years — auto-computed by trigger"
+    )
     blood_group: BloodGroup = Field(
         default=BloodGroup.UNKNOWN, description="ABO + Rh blood group"
     )
-    phone: str = Field(..., description="Primary contact phone number")
-    email: Optional[str] = Field(None, description="Email address")
-    address: Optional[Address] = Field(None, description="Residential address")
     emergency_contact: Optional[EmergencyContact] = Field(
         None, description="Next-of-kin or emergency contact"
     )
@@ -215,36 +257,18 @@ class Patient(BaseModel):
         return v
 
 
-class Visit(BaseModel):
-    """Document model for the 'visits' MongoDB collection.
+class Department(BaseModel):
+    """Document model for the 'departments' collection.
 
-    Records each clinical encounter between a patient and a healthcare provider.
+    ER attributes: DepartmentID, DepartmentName, Location.
+    FK target of Physician.DepartmentID and VisitDepartment.DepartmentID.
     """
 
-    visit_id: str = Field(..., description="Unique identifier for this visit (e.g. VIS-2024-001)")
-    patient_id: str = Field(..., description="Foreign key — references Patient.patient_id")
-    visit_date: datetime = Field(..., description="Date and time of the visit (UTC)")
-    department: str = Field(..., description="Hospital department (e.g. Cardiology)")
-    attending_doctor: str = Field(..., description="Full name of the attending physician")
-    doctor_id: str = Field(..., description="Unique identifier of the attending doctor")
-    chief_complaint: str = Field(..., description="Primary reason for the visit")
-    diagnosis: list[str] = Field(
-        default_factory=list, description="ICD-10 diagnoses recorded during the visit"
+    department_id: str = Field(
+        ..., description="ER: DepartmentID — unique identifier (e.g. DEP-2024-001)"
     )
-    vital_signs: Optional[VitalSigns] = Field(
-        None, description="Vital signs measured during the visit"
-    )
-    prescriptions: list[str] = Field(
-        default_factory=list, description="Medications prescribed at this visit"
-    )
-    lab_orders: list[str] = Field(
-        default_factory=list, description="Laboratory investigations ordered"
-    )
-    imaging_orders: list[str] = Field(
-        default_factory=list, description="Imaging studies ordered (X-ray, MRI, etc.)"
-    )
-    notes: Optional[str] = Field(None, description="Free-text clinical notes by the doctor")
-    follow_up_date: Optional[date] = Field(None, description="Recommended follow-up date")
+    department_name: str = Field(..., min_length=1, description="ER: DepartmentName")
+    location: str = Field(..., description="ER: Location — physical location in the hospital")
     created_at: datetime = Field(
         default_factory=datetime.utcnow, description="Record creation timestamp (UTC)"
     )
@@ -252,45 +276,57 @@ class Visit(BaseModel):
         default_factory=datetime.utcnow, description="Record last-updated timestamp (UTC)"
     )
 
-    @field_validator("patient_id")
-    @classmethod
-    def check_patient_id(cls, v: str) -> str:
-        """Validate the patient_id foreign key format."""
-        return validate_patient_id(v)
 
-    @field_validator("follow_up_date")
-    @classmethod
-    def follow_up_after_visit(cls, v: Optional[date]) -> Optional[date]:
-        """Ensure follow-up date is not in the past."""
-        if v is not None and v < date.today():
-            raise ValueError("follow_up_date cannot be in the past")
-        return v
+class Physician(BaseModel):
+    """Document model for the 'physicians' collection.
+
+    ER attributes: PhysicianID, FirstName, LastName, Speciality, DepartmentID.
+    DepartmentID is a FK to the departments collection.
+    """
+
+    physician_id: str = Field(
+        ..., description="ER: PhysicianID — unique identifier (e.g. PHY-2024-001)"
+    )
+    first_name: str = Field(..., min_length=1, description="ER: FirstName")
+    last_name: str = Field(..., min_length=1, description="ER: LastName")
+    speciality: str = Field(..., description="ER: Speciality (e.g. Cardiology)")
+    department_id: str = Field(
+        ..., description="ER: DepartmentID — FK to departments collection"
+    )
+    phone: Optional[str] = Field(None, description="Physician contact number")
+    email: Optional[str] = Field(None, description="Physician email address")
+    is_active: bool = Field(default=True, description="Whether the physician is currently active")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Record creation timestamp (UTC)"
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Record last-updated timestamp (UTC)"
+    )
 
 
 class Appointment(BaseModel):
-    """Document model for the 'appointments' MongoDB collection.
+    """Document model for the 'appointments' collection.
 
-    Tracks scheduled appointments for patients with specific doctors or departments.
+    ER attributes: AppointmentID, AppointmentDateAndTime, Reason, Status,
+    PatientID (FK), PhysicianID (FK).
+    Relationship: Patient 1──N Appointment N──1 Physician.
     """
 
     appointment_id: str = Field(
-        ..., description="Unique appointment identifier (e.g. APT-2024-001)"
+        ..., description="ER: AppointmentID (e.g. APT-2024-001)"
     )
-    patient_id: str = Field(..., description="Foreign key — references Patient.patient_id")
-    doctor_id: str = Field(..., description="Unique identifier of the assigned doctor")
-    doctor_name: str = Field(..., description="Full name of the assigned doctor")
-    department: str = Field(..., description="Hospital department for the appointment")
-    scheduled_at: datetime = Field(
-        ..., description="Scheduled date and time of the appointment (UTC)"
+    patient_id: str = Field(..., description="ER: PatientID — FK to patients collection")
+    physician_id: str = Field(
+        ..., description="ER: PhysicianID — FK to physicians collection"
     )
-    duration_minutes: int = Field(
-        default=30, ge=5, le=480, description="Appointment duration in minutes"
+    appointment_date_and_time: datetime = Field(
+        ..., description="ER: AppointmentDateAndTime — scheduled UTC datetime"
     )
+    reason: str = Field(..., description="ER: Reason — purpose of the appointment")
     status: AppointmentStatus = Field(
-        default=AppointmentStatus.SCHEDULED, description="Current appointment status"
+        default=AppointmentStatus.SCHEDULED, description="ER: Status"
     )
-    reason: str = Field(..., description="Reason or purpose of the appointment")
-    notes: Optional[str] = Field(None, description="Additional notes from scheduling staff")
+    notes: Optional[str] = Field(None, description="Additional scheduling notes")
     cancellation_reason: Optional[str] = Field(
         None, description="Reason provided when the appointment is cancelled"
     )
@@ -304,12 +340,12 @@ class Appointment(BaseModel):
     @field_validator("patient_id")
     @classmethod
     def check_patient_id(cls, v: str) -> str:
-        """Validate the patient_id foreign key format."""
+        """Validate the patient_id FK format."""
         return validate_patient_id(v)
 
     @model_validator(mode="after")
     def cancellation_reason_required_when_cancelled(self) -> "Appointment":
-        """Ensure cancellation_reason is provided when status is CANCELLED."""
+        """Ensure cancellation_reason is present when status is CANCELLED."""
         if (
             self.status == AppointmentStatus.CANCELLED
             and not self.cancellation_reason
@@ -320,54 +356,98 @@ class Appointment(BaseModel):
         return self
 
 
-class Referral(BaseModel):
-    """Document model for the 'referrals' MongoDB collection.
+class Visit(BaseModel):
+    """Document model for the 'visits' collection.
 
-    Records inter-department or inter-hospital referrals for a patient.
+    ER attributes: VisitID, VisitDate, Reason, Diagnosis, Status,
+    PatientID (FK), PhysicianID (FK).
+    Relationship: Patient 1──N Visit N──1 Physician; Visit M──N Department
+    via VisitDepartment junction.
+
+    VitalSigns is an optional embedded sub-document (not in the ER but required
+    by the abnormal_vitals_trigger specification).
+    """
+
+    visit_id: str = Field(..., description="ER: VisitID (e.g. VIS-2024-001)")
+    patient_id: str = Field(..., description="ER: PatientID — FK to patients collection")
+    physician_id: str = Field(
+        ..., description="ER: PhysicianID — FK to physicians collection"
+    )
+    visit_date: date = Field(..., description="ER: VisitDate (YYYY-MM-DD)")
+    reason: str = Field(..., description="ER: Reason — chief complaint / reason for visit")
+    diagnosis: Optional[str] = Field(None, description="ER: Diagnosis — clinical diagnosis text")
+    status: VisitStatus = Field(default=VisitStatus.ACTIVE, description="ER: Status")
+    vital_signs: Optional[VitalSigns] = Field(
+        None,
+        description="Vital signs measured during the visit — evaluated by abnormal_vitals_trigger",
+    )
+    notes: Optional[str] = Field(None, description="Free-text clinical notes")
+    follow_up_date: Optional[date] = Field(None, description="Recommended follow-up date")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Record creation timestamp (UTC)"
+    )
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Record last-updated timestamp (UTC)"
+    )
+
+    @field_validator("patient_id")
+    @classmethod
+    def check_patient_id(cls, v: str) -> str:
+        """Validate the patient_id FK format."""
+        return validate_patient_id(v)
+
+    @field_validator("follow_up_date")
+    @classmethod
+    def follow_up_not_before_visit(cls, v: Optional[date]) -> Optional[date]:
+        """Ensure follow-up date is not in the past."""
+        if v is not None and v < date.today():
+            raise ValueError("follow_up_date cannot be in the past")
+        return v
+
+
+class VisitDepartment(BaseModel):
+    """Junction document for the Visit ↔ Department M-to-N relationship.
+
+    ER: VisitDepartment(VisitID, DepartmentID) — resolves the many-to-many
+    relationship between Visit and Department.
+    Stored in the 'visit_departments' collection.
+    """
+
+    visit_id: str = Field(..., description="ER: VisitID — FK to visits collection")
+    department_id: str = Field(
+        ..., description="ER: DepartmentID — FK to departments collection"
+    )
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Junction record creation timestamp (UTC)"
+    )
+
+
+class Referral(BaseModel):
+    """Document model for the 'referrals' collection.
+
+    ER attributes: ReferralID, ReferralDate, Reason, Status,
+    SourcePhysicianID (FK), TargetPhysicianID (FK), PatientID (FK).
+    Relationship: Patient 1──N Referral; two FK references to Physician.
     """
 
     referral_id: str = Field(
-        ..., description="Unique referral identifier (e.g. REF-2024-001)"
+        ..., description="ER: ReferralID (e.g. REF-2024-001)"
     )
-    patient_id: str = Field(..., description="Foreign key — references Patient.patient_id")
-    referring_doctor_id: str = Field(
-        ..., description="Unique identifier of the doctor initiating the referral"
+    patient_id: str = Field(..., description="ER: PatientID — FK to patients collection")
+    source_physician_id: str = Field(
+        ..., description="ER: SourcePhysicianID — FK to physicians (referring doctor)"
     )
-    referring_doctor_name: str = Field(
-        ..., description="Full name of the referring doctor"
+    target_physician_id: str = Field(
+        ..., description="ER: TargetPhysicianID — FK to physicians (specialist receiving referral)"
     )
-    referring_department: str = Field(
-        ..., description="Department from which the referral originates"
+    referral_date: datetime = Field(
+        default_factory=datetime.utcnow, description="ER: ReferralDate — UTC datetime"
     )
-    referred_to_doctor_id: Optional[str] = Field(
-        None, description="Unique identifier of the specialist receiving the referral"
-    )
-    referred_to_doctor_name: Optional[str] = Field(
-        None, description="Full name of the specialist receiving the referral"
-    )
-    referred_to_department: str = Field(
-        ..., description="Destination department or specialty"
-    )
-    referred_to_hospital: Optional[str] = Field(
-        None, description="External hospital name if the referral is outside this facility"
-    )
-    reason: str = Field(..., description="Clinical reason for the referral")
-    urgency: AlertSeverity = Field(
-        default=AlertSeverity.MEDIUM, description="Urgency level of the referral"
-    )
+    reason: str = Field(..., description="ER: Reason — clinical reason for the referral")
     status: ReferralStatus = Field(
-        default=ReferralStatus.PENDING, description="Current status of the referral"
+        default=ReferralStatus.PENDING, description="ER: Status"
     )
     notes: Optional[str] = Field(None, description="Additional clinical notes")
-    referral_date: datetime = Field(
-        default_factory=datetime.utcnow, description="Date and time the referral was created (UTC)"
-    )
-    accepted_at: Optional[datetime] = Field(
-        None, description="Timestamp when the referral was accepted"
-    )
-    completed_at: Optional[datetime] = Field(
-        None, description="Timestamp when the referral was completed"
-    )
     created_at: datetime = Field(
         default_factory=datetime.utcnow, description="Record creation timestamp (UTC)"
     )
@@ -378,106 +458,75 @@ class Referral(BaseModel):
     @field_validator("patient_id")
     @classmethod
     def check_patient_id(cls, v: str) -> str:
-        """Validate the patient_id foreign key format."""
+        """Validate the patient_id FK format."""
         return validate_patient_id(v)
 
 
-class Alert(BaseModel):
-    """Document model for the 'alerts' MongoDB collection.
+# ---------------------------------------------------------------------------
+# Operational support models (not ER entities — required by system architecture)
+# ---------------------------------------------------------------------------
 
-    Stores clinical alerts generated by the AI decision support system or
-    clinical staff for a specific patient.
+class Alert(BaseModel):
+    """Document model for the 'alerts' collection.
+
+    Populated automatically by trigger functions (visit_frequency_alert_trigger,
+    abnormal_vitals_trigger). Also feeds the Master DB global alerts view
+    described in the project architecture slides.
     """
 
-    alert_id: str = Field(
-        ..., description="Unique alert identifier (e.g. ALT-2024-001)"
-    )
-    patient_id: str = Field(..., description="Foreign key — references Patient.patient_id")
+    alert_id: str = Field(..., description="Unique alert identifier (e.g. ALT-2024-001)")
+    patient_id: str = Field(..., description="FK to patients collection")
     alert_type: AlertType = Field(..., description="Category of the alert")
     severity: AlertSeverity = Field(..., description="Clinical urgency level")
-    title: str = Field(..., min_length=1, description="Short descriptive title for the alert")
+    title: str = Field(..., min_length=1, description="Short descriptive title")
     message: str = Field(..., min_length=1, description="Detailed alert message")
     source: str = Field(
-        ..., description="System or person that generated the alert (e.g. 'AI Engine', 'Dr. Smith')"
+        ...,
+        description="System component or person that generated the alert",
     )
-    is_acknowledged: bool = Field(
-        default=False, description="Whether a clinician has acknowledged the alert"
-    )
-    acknowledged_by: Optional[str] = Field(
-        None, description="Name or ID of the clinician who acknowledged the alert"
-    )
-    acknowledged_at: Optional[datetime] = Field(
-        None, description="Timestamp when the alert was acknowledged"
-    )
-    is_resolved: bool = Field(
-        default=False, description="Whether the underlying issue has been resolved"
-    )
-    resolved_at: Optional[datetime] = Field(
-        None, description="Timestamp when the alert was resolved"
-    )
-    related_visit_id: Optional[str] = Field(
-        None, description="Visit ID that triggered this alert, if applicable"
-    )
-    created_at: datetime = Field(
-        default_factory=datetime.utcnow, description="Record creation timestamp (UTC)"
-    )
-    updated_at: datetime = Field(
-        default_factory=datetime.utcnow, description="Record last-updated timestamp (UTC)"
-    )
+    is_acknowledged: bool = Field(default=False, description="Acknowledged by a clinician")
+    acknowledged_by: Optional[str] = Field(None, description="Clinician who acknowledged")
+    acknowledged_at: Optional[datetime] = Field(None, description="Acknowledgement timestamp")
+    is_resolved: bool = Field(default=False, description="Underlying issue resolved")
+    resolved_at: Optional[datetime] = Field(None, description="Resolution timestamp")
+    related_visit_id: Optional[str] = Field(None, description="Visit that triggered this alert")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     @field_validator("patient_id")
     @classmethod
     def check_patient_id(cls, v: str) -> str:
-        """Validate the patient_id foreign key format."""
+        """Validate the patient_id FK format."""
         return validate_patient_id(v)
 
     @model_validator(mode="after")
     def acknowledged_fields_consistent(self) -> "Alert":
-        """Ensure acknowledged_by and acknowledged_at are set when is_acknowledged is True."""
+        """Require acknowledged_by when is_acknowledged is True."""
         if self.is_acknowledged and not self.acknowledged_by:
-            raise ValueError(
-                "acknowledged_by is required when is_acknowledged is True"
-            )
+            raise ValueError("acknowledged_by is required when is_acknowledged is True")
         return self
 
 
 class AuditLog(BaseModel):
-    """Document model for the 'audit_logs' MongoDB collection.
+    """Document model for the 'audit_logs' collection.
 
-    Records every create / read / update / delete operation on patient data
-    for compliance, security, and traceability.
+    Written exclusively by audit_log_trigger. Feeds the Master DB's
+    'Audit and access logs' requirement (project architecture slide 17).
     """
 
-    log_id: str = Field(
-        ..., description="Unique log entry identifier (e.g. LOG-2024-001)"
-    )
-    patient_id: str = Field(..., description="Foreign key — references Patient.patient_id")
-    action: AuditAction = Field(..., description="Type of database operation performed")
-    collection_name: str = Field(
-        ..., description="MongoDB collection that was modified (e.g. 'patients', 'visits')"
-    )
-    document_id: str = Field(
-        ..., description="ID of the document that was created, read, updated, or deleted"
-    )
-    performed_by: str = Field(
-        ..., description="User ID or system identifier that performed the action"
-    )
-    performed_by_role: str = Field(
-        ..., description="Role of the actor (e.g. 'doctor', 'nurse', 'admin', 'system')"
-    )
-    ip_address: Optional[str] = Field(
-        None, description="IP address of the client that initiated the request"
-    )
+    log_id: str = Field(..., description="Unique log entry identifier (e.g. LOG-2024-001)")
+    patient_id: str = Field(..., description="FK to patients collection")
+    action: AuditAction = Field(..., description="CRUD operation performed")
+    collection_name: str = Field(..., description="MongoDB collection that was touched")
+    document_id: str = Field(..., description="ID of the document affected")
+    performed_by: str = Field(..., description="User ID or system identifier")
+    performed_by_role: str = Field(..., description="Role of the actor")
+    ip_address: Optional[str] = Field(None, description="Client IP address")
     changes: Optional[dict] = Field(
         None,
-        description=(
-            "Dictionary describing what changed: "
-            "{'field': {'before': old_value, 'after': new_value}}"
-        ),
+        description="Before/after diff: {'field': {'before': v1, 'after': v2}}",
     )
-    reason: Optional[str] = Field(
-        None, description="Optional justification for the action (e.g. for record updates)"
-    )
+    reason: Optional[str] = Field(None, description="Optional justification for the action")
     timestamp: datetime = Field(
         default_factory=datetime.utcnow,
         description="Exact UTC timestamp when the action occurred",
@@ -486,5 +535,5 @@ class AuditLog(BaseModel):
     @field_validator("patient_id")
     @classmethod
     def check_patient_id(cls, v: str) -> str:
-        """Validate the patient_id foreign key format."""
+        """Validate the patient_id FK format."""
         return validate_patient_id(v)
