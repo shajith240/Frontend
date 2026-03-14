@@ -1,14 +1,16 @@
-"""Visit history page — search patients and display their full visit timeline.
+"""Visit history page — hero search bar with vertical timeline design.
 
-Uses get_patient_full_profile() from the aggregation pipelines to fetch a
-complete patient record with visits, appointments, referrals, and physician
-details in a single aggregation pass.
+Centered search, patient profile card with avatar, vertical timeline
+with status-colored dots, tabbed view for visits/appointments/referrals,
+and CSV export.
 """
 
+import io
 import sys
 from pathlib import Path
 from typing import Any, Optional
 
+import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -23,33 +25,78 @@ from database.queries.aggregations import get_patient_full_profile
 load_dotenv()
 
 
-def _render_patient_summary(patient: dict) -> None:
-    """Display the demographic summary card at the top of the page.
+def _render_patient_card(patient: dict) -> None:
+    """Display the patient profile card with avatar and key stats.
 
     Args:
         patient: Patient document dict from get_patient_full_profile.
     """
-    st.subheader(f"{patient.get('first_name', '')} {patient.get('last_name', '')}")
+    first = patient.get("first_name", "?")
+    last = patient.get("last_name", "?")
+    initials = f"{first[0]}{last[0]}".upper()
+    gender = str(patient.get("gender", "")).lower()
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Patient ID", patient.get("patient_id", "N/A"))
-    col2.metric("Age", patient.get("age", "N/A"))
-    col3.metric("Gender", str(patient.get("gender", "N/A")).title())
-    col4.metric("Phone", patient.get("phone", "N/A"))
+    if gender == "male":
+        avatar_bg = "#2563EB"
+    elif gender == "female":
+        avatar_bg = "#EC4899"
+    else:
+        avatar_bg = "#8B5CF6"
 
-    # Additional demographics in an expander
+    dob = patient.get("date_of_birth")
+    dob_str = dob.strftime("%d %b %Y") if hasattr(dob, "strftime") else str(dob) if dob else "—"
+
+    st.markdown(
+        f"""<div style="background:rgba(30,41,59,0.6); backdrop-filter:blur(12px);
+                border:1px solid #334155; border-radius:16px; padding:24px;
+                display:flex; align-items:center; gap:20px; margin-bottom:20px;">
+            <div style="width:64px; height:64px; border-radius:50%;
+                background:{avatar_bg}; display:flex; align-items:center;
+                justify-content:center; font-size:1.4rem; font-weight:800;
+                color:white; flex-shrink:0;
+                box-shadow:0 4px 15px rgba(0,0,0,0.3);">{initials}</div>
+            <div style="flex:1;">
+                <h3 style="margin:0; font-size:1.3rem; font-weight:700;">
+                    {first} {last}</h3>
+                <p style="color:#94A3B8; font-size:0.8rem; margin:4px 0 0 0;
+                    font-family:monospace;">{patient.get('patient_id', 'N/A')}</p>
+            </div>
+            <div style="display:flex; gap:32px;">
+                <div style="text-align:center;">
+                    <p style="color:#64748B; font-size:0.6rem; text-transform:uppercase;
+                        letter-spacing:0.08em; margin:0;">Age</p>
+                    <p style="font-size:1.3rem; font-weight:800; margin:2px 0 0 0;">
+                        {patient.get('age', 'N/A')}</p>
+                </div>
+                <div style="text-align:center;">
+                    <p style="color:#64748B; font-size:0.6rem; text-transform:uppercase;
+                        letter-spacing:0.08em; margin:0;">Gender</p>
+                    <p style="font-size:1.3rem; font-weight:800; margin:2px 0 0 0;">
+                        {gender.title()}</p>
+                </div>
+                <div style="text-align:center;">
+                    <p style="color:#64748B; font-size:0.6rem; text-transform:uppercase;
+                        letter-spacing:0.08em; margin:0;">Phone</p>
+                    <p style="font-size:0.9rem; font-weight:600; margin:6px 0 0 0;">
+                        {patient.get('phone', '—')}</p>
+                </div>
+                <div style="text-align:center;">
+                    <p style="color:#64748B; font-size:0.6rem; text-transform:uppercase;
+                        letter-spacing:0.08em; margin:0;">Blood</p>
+                    <p style="font-size:1.3rem; font-weight:800; margin:2px 0 0 0;">
+                        {str(patient.get('blood_group', '—')).upper()}</p>
+                </div>
+            </div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    # Demographics expander
     with st.expander("Full Demographics"):
         demo_col1, demo_col2 = st.columns(2)
         with demo_col1:
             st.write(f"**Email:** {patient.get('email', 'Not provided')}")
-            st.write(
-                f"**Blood Group:** "
-                f"{str(patient.get('blood_group', 'Unknown')).upper()}"
-            )
-            dob = patient.get("date_of_birth")
-            if dob:
-                dob_str = dob.strftime("%d %b %Y") if hasattr(dob, "strftime") else str(dob)
-                st.write(f"**Date of Birth:** {dob_str}")
+            st.write(f"**DOB:** {dob_str}")
 
         with demo_col2:
             address = patient.get("address")
@@ -67,74 +114,105 @@ def _render_patient_summary(patient: dict) -> None:
 
 
 def _render_visit_timeline(visits: list[dict]) -> None:
-    """Display the visit timeline sorted by date descending.
-
-    Each visit card shows VisitDate, Reason, Diagnosis, Status, Physician name,
-    and Department as required by the ER diagram.
+    """Display visits as a vertical timeline with status-colored dots.
 
     Args:
         visits: List of visit dicts from the full profile aggregation.
     """
-    st.metric("Total Visits", len(visits))
+    status_colors = {
+        "active": "#2563EB",
+        "completed": "#10B981",
+        "discharged": "#F59E0B",
+        "cancelled": "#EF4444",
+    }
 
     if not visits:
         st.info("No visits recorded for this patient.")
         return
 
+    # Export button
+    if visits:
+        export_data = []
+        for v in visits:
+            vd = v.get("visit_date", "")
+            vd_str = vd.strftime("%Y-%m-%d") if hasattr(vd, "strftime") else str(vd)
+            export_data.append({
+                "Visit ID": v.get("visit_id", ""),
+                "Date": vd_str,
+                "Reason": v.get("reason", ""),
+                "Diagnosis": v.get("diagnosis", ""),
+                "Status": v.get("status", ""),
+                "Physician": v.get("physician_name", ""),
+            })
+        df = pd.DataFrame(export_data)
+        csv = df.to_csv(index=False)
+        st.download_button(
+            "📥 Export as CSV",
+            data=csv,
+            file_name="visit_history.csv",
+            mime="text/csv",
+        )
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
     for visit in visits:
         visit_date = visit.get("visit_date", "Unknown date")
         if hasattr(visit_date, "strftime"):
-            visit_date = visit_date.strftime("%d %b %Y")
+            visit_date_str = visit_date.strftime("%d %b %Y")
+        else:
+            visit_date_str = str(visit_date)
 
-        status = str(visit.get("status", "unknown")).upper()
-        status_colors = {
-            "ACTIVE": "blue",
-            "COMPLETED": "green",
-            "DISCHARGED": "orange",
-            "CANCELLED": "red",
-        }
-        status_color = status_colors.get(status, "gray")
+        status = str(visit.get("status", "unknown")).lower()
+        color = status_colors.get(status, "#64748B")
 
-        with st.container(border=True):
-            header_col, status_col = st.columns([4, 1])
-            with header_col:
-                st.markdown(
-                    f"**{visit_date}** — {visit.get('reason', 'No reason recorded')}"
-                )
-            with status_col:
-                st.markdown(
-                    f":{status_color}[**{status}**]"
-                )
+        physician_name = visit.get("physician_name", "Not assigned")
+        physician_spec = visit.get("physician_speciality", "")
+        departments = visit.get("departments", [])
+        dept_names = [d.get("department_name", "") for d in departments if d] if departments else []
 
-            detail_col1, detail_col2 = st.columns(2)
-            with detail_col1:
-                diagnosis = visit.get("diagnosis", "Pending")
-                st.write(f"**Diagnosis:** {diagnosis}")
-                st.write(
-                    f"**Physician:** {visit.get('physician_name', 'Not assigned')}"
-                )
-
-            with detail_col2:
-                speciality = visit.get("physician_speciality", "")
-                if speciality:
-                    st.write(f"**Speciality:** {speciality}")
-
-                departments = visit.get("departments", [])
-                if departments:
-                    dept_names = [
-                        d.get("department_name", "") for d in departments if d
-                    ]
-                    st.write(f"**Department:** {', '.join(dept_names)}")
+        st.markdown(
+            f"""<div style="display:flex; gap:16px; margin-bottom:4px;">
+                <div style="display:flex; flex-direction:column; align-items:center;
+                    width:80px; flex-shrink:0; padding-top:4px;">
+                    <span style="font-size:0.75rem; font-weight:600; color:#94A3B8;
+                        white-space:nowrap;">{visit_date_str}</span>
+                    <div style="width:12px; height:12px; border-radius:50%;
+                        background:{color}; margin:8px 0;
+                        box-shadow:0 0 8px {color}40;"></div>
+                    <div style="width:2px; flex:1; background:#334155;"></div>
+                </div>
+                <div style="flex:1; background:rgba(30,41,59,0.4);
+                    border:1px solid #334155; border-radius:12px;
+                    padding:16px; margin-bottom:8px;
+                    transition:border-color 0.2s ease;">
+                    <div style="display:flex; justify-content:space-between;
+                        align-items:flex-start; margin-bottom:8px;">
+                        <span style="font-weight:600; font-size:0.9rem;">
+                            {visit.get('reason', 'No reason recorded')}</span>
+                        <span style="font-size:0.7rem; font-weight:600; color:{color};
+                            text-transform:uppercase; letter-spacing:0.05em;
+                            background:{color}20; padding:2px 8px;
+                            border-radius:4px;">{status}</span>
+                    </div>
+                    <p style="color:#94A3B8; font-size:0.8rem; margin:0;">
+                        <strong>Diagnosis:</strong> {visit.get('diagnosis', 'Pending')}</p>
+                    <p style="color:#94A3B8; font-size:0.8rem; margin:4px 0 0 0;">
+                        <strong>Physician:</strong> {physician_name}
+                        {f' — {physician_spec}' if physician_spec else ''}
+                        {f' | <strong>Dept:</strong> {", ".join(dept_names)}' if dept_names else ''}
+                    </p>
+                </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
 
 
 def _render_appointments_tab(appointments: list[dict]) -> None:
-    """Display the patient's appointments in a table.
+    """Display the patient's appointments in a styled table.
 
     Args:
         appointments: List of appointment dicts from the full profile aggregation.
     """
-    st.metric("Total Appointments", len(appointments))
-
     if not appointments:
         st.info("No appointments found for this patient.")
         return
@@ -161,35 +239,23 @@ def _render_appointments_tab(appointments: list[dict]) -> None:
                 f"Dr. {p.get('first_name', '')} {p.get('last_name', '')}"
             )
 
-        status = str(appt.get("status", "unknown")).upper()
-        status_colors = {
-            "SCHEDULED": "blue",
-            "CONFIRMED": "green",
-            "COMPLETED": "green",
-            "CANCELLED": "red",
-            "NO_SHOW": "orange",
-        }
-        color = status_colors.get(status, "gray")
-
         display.append({
             "ID": appt.get("appointment_id", ""),
             "Date & Time": dt_str,
             "Physician": physician_name,
             "Reason": appt.get("reason", ""),
-            "Status": status.title(),
+            "Status": str(appt.get("status", "")).title(),
         })
 
     st.dataframe(display, use_container_width=True, hide_index=True)
 
 
 def _render_referrals_tab(referrals: list[dict]) -> None:
-    """Display the patient's referrals in a table.
+    """Display the patient's referrals in a styled table.
 
     Args:
         referrals: List of referral dicts from the full profile aggregation.
     """
-    st.metric("Total Referrals", len(referrals))
-
     if not referrals:
         st.info("No referrals found for this patient.")
         return
@@ -206,28 +272,18 @@ def _render_referrals_tab(referrals: list[dict]) -> None:
         source_name = "N/A"
         source = ref.get("source_physician")
         if source and isinstance(source, dict):
-            source_name = (
-                f"Dr. {source.get('first_name', '')} "
-                f"{source.get('last_name', '')}"
-            )
+            source_name = f"Dr. {source.get('first_name', '')} {source.get('last_name', '')}"
         elif isinstance(source, list) and source:
             s = source[0]
-            source_name = (
-                f"Dr. {s.get('first_name', '')} {s.get('last_name', '')}"
-            )
+            source_name = f"Dr. {s.get('first_name', '')} {s.get('last_name', '')}"
 
         target_name = "N/A"
         target = ref.get("target_physician")
         if target and isinstance(target, dict):
-            target_name = (
-                f"Dr. {target.get('first_name', '')} "
-                f"{target.get('last_name', '')}"
-            )
+            target_name = f"Dr. {target.get('first_name', '')} {target.get('last_name', '')}"
         elif isinstance(target, list) and target:
             t = target[0]
-            target_name = (
-                f"Dr. {t.get('first_name', '')} {t.get('last_name', '')}"
-            )
+            target_name = f"Dr. {t.get('first_name', '')} {t.get('last_name', '')}"
 
         display.append({
             "ID": ref.get("referral_id", ""),
@@ -242,22 +298,37 @@ def _render_referrals_tab(referrals: list[dict]) -> None:
 
 
 def render(db: DatabaseConnection) -> None:
-    """Render the visit history page with search and timeline display.
+    """Render the visit history page with hero search and timeline.
 
     Args:
         db: Active DatabaseConnection.
     """
-    st.header("Visit History")
-
-    # Search bar — accepts PatientID or name
-    search_query = st.text_input(
-        "Search by Patient ID or Name",
-        placeholder="PAT-2024-001 or Rajesh",
-        key="visit_search",
+    # Hero search bar
+    st.markdown(
+        """<div style="text-align:center; padding:24px 0 8px 0;">
+            <h2 style="margin:0; font-size:1.4rem;">Visit History</h2>
+            <p style="color:#94A3B8; font-size:0.85rem; margin:4px 0 0 0;">
+                Search by Patient ID or name to view their complete clinical record</p>
+        </div>""",
+        unsafe_allow_html=True,
     )
 
+    # Centered search
+    _, search_col, _ = st.columns([1, 3, 1])
+    with search_col:
+        search_query = st.text_input(
+            "Search",
+            placeholder="🔍 PAT-2024-001 or Rajesh Sharma",
+            key="visit_search",
+            label_visibility="collapsed",
+        )
+
     if not search_query.strip():
-        st.info("Enter a Patient ID (PAT-YYYY-NNN) or patient name to search.")
+        st.markdown(
+            '<p style="text-align:center; color:#64748B; font-size:0.8rem; '
+            'margin-top:40px;">Enter a Patient ID (PAT-YYYY-NNN) or patient name above.</p>',
+            unsafe_allow_html=True,
+        )
         return
 
     query = search_query.strip()
@@ -283,55 +354,54 @@ def render(db: DatabaseConnection) -> None:
                 st.warning(f"No patients found matching '{query}'")
                 return
 
-            # Always show dropdown so the user can confirm the right patient,
-            # even when there is only one match (handles same-name patients).
-            options = {
-                f"{r['first_name']} {r['last_name']} ({r['patient_id']})": r["patient_id"]
-                for r in results
-            }
-            label = (
-                f"{len(results)} patient(s) found — confirm selection:"
-                if len(results) == 1
-                else f"{len(results)} patients found — select one:"
-            )
-            selected = st.selectbox(label, options=list(options.keys()))
-            if selected:
-                patient_id = options[selected]
+            # Always show dropdown for patient confirmation
+            _, sel_col, _ = st.columns([1, 3, 1])
+            with sel_col:
+                options = {
+                    f"{r['first_name']} {r['last_name']} ({r['patient_id']})": r["patient_id"]
+                    for r in results
+                }
+                label = (
+                    f"{len(results)} patient(s) found — confirm selection:"
+                    if len(results) == 1
+                    else f"{len(results)} patients found — select one:"
+                )
+                selected = st.selectbox(label, options=list(options.keys()))
+                if selected:
+                    patient_id = options[selected]
 
         if not patient_id:
             return
 
-        # Fetch complete profile using the aggregation pipeline
+        # Fetch complete profile
         with st.spinner("Loading patient profile..."):
             profile = get_patient_full_profile(db, patient_id)
         if not profile:
             st.error(f"Could not load full profile for {patient_id}")
             return
 
-        # Render patient summary at the top
-        _render_patient_summary(profile)
+        # Patient card
+        _render_patient_card(profile)
 
-        st.divider()
-
-        # Tabbed view for visits, appointments, and referrals
+        # Tabbed view
         visits = profile.get("visits", [])
-        appointments = profile.get("appointments", [])
-        referrals = profile.get("referrals", [])
+        appts = profile.get("appointments", [])
+        refs = profile.get("referrals", [])
 
         tab_visits, tab_appts, tab_refs = st.tabs([
-            f"Visits ({len(visits)})",
-            f"Appointments ({len(appointments)})",
-            f"Referrals ({len(referrals)})",
+            f"🕐 Visits ({len(visits)})",
+            f"📅 Appointments ({len(appts)})",
+            f"🔗 Referrals ({len(refs)})",
         ])
 
         with tab_visits:
             _render_visit_timeline(visits)
 
         with tab_appts:
-            _render_appointments_tab(appointments)
+            _render_appointments_tab(appts)
 
         with tab_refs:
-            _render_referrals_tab(referrals)
+            _render_referrals_tab(refs)
 
     except RuntimeError as exc:
         st.error(f"Database error: {exc}")

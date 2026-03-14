@@ -8,6 +8,9 @@ in Module 1:
   4. Trigger Demonstrations (all 5 triggers with live fire)
   5. Stored Procedures (3 procedure simulations with live execution)
   6. Audit Log Viewer (real-time proof that triggers are working)
+
+Dark terminal aesthetic for code blocks, metrics bar, and side-by-side
+SQL/MongoDB comparison.
 """
 
 import inspect
@@ -74,125 +77,61 @@ load_dotenv()
 
 def _render_schema_section() -> None:
     """Render Section 1: Schema & Normalization with collection details and ER relationships."""
-    st.subheader("1. Schema & Normalization")
-    st.info(
-        "Our database is normalized into **9 separate collections**, each storing "
-        "a single entity type. This eliminates data redundancy and ensures referential "
-        "integrity — the same principles behind 3NF in relational databases."
+    st.markdown(
+        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:16px;">'
+        "Our database is normalized into <strong style='color:#F8FAFC;'>9 separate collections</strong>, "
+        "each storing a single entity type. This eliminates redundancy and ensures referential integrity.</p>",
+        unsafe_allow_html=True,
     )
 
-    # Collection overview table
     collections_data = [
-        {
-            "Collection": "patients",
-            "Primary Key": "patient_id (PAT-YYYY-NNN)",
-            "Key Fields": "first_name, last_name, date_of_birth, gender, phone, email, address, insurance",
-            "Purpose": "Core patient demographics — the central entity in the ER diagram",
-            "Normalization": "1NF: atomic values; 2NF: all fields depend on patient_id; 3NF: no transitive deps",
-        },
-        {
-            "Collection": "physicians",
-            "Primary Key": "physician_id",
-            "Key Fields": "first_name, last_name, speciality, department_id (FK)",
-            "Purpose": "Physician registry with department assignment",
-            "Normalization": "department_id is a FK — department details stored separately to avoid redundancy",
-        },
-        {
-            "Collection": "departments",
-            "Primary Key": "department_id",
-            "Key Fields": "department_name, location",
-            "Purpose": "Hospital department master data",
-            "Normalization": "Separate collection prevents repeating department info in every physician record",
-        },
-        {
-            "Collection": "visits",
-            "Primary Key": "visit_id",
-            "Key Fields": "visit_date, reason, diagnosis, status, patient_id (FK), physician_id (FK)",
-            "Purpose": "Clinical visit records linking patient to physician",
-            "Normalization": "FKs to patients and physicians — no embedded patient/physician data",
-        },
-        {
-            "Collection": "appointments",
-            "Primary Key": "appointment_id",
-            "Key Fields": "appointment_date_and_time, reason, status, patient_id (FK), physician_id (FK)",
-            "Purpose": "Scheduled appointments with conflict detection",
-            "Normalization": "Same FK pattern as visits — patient and physician stored by reference",
-        },
-        {
-            "Collection": "referrals",
-            "Primary Key": "referral_id",
-            "Key Fields": "referral_date, reason, status, patient_id (FK), source_physician_id (FK), target_physician_id (FK)",
-            "Purpose": "Inter-physician referral tracking with two physician FKs",
-            "Normalization": "Two FK references to physicians collection — no data duplication",
-        },
-        {
-            "Collection": "visit_departments",
-            "Primary Key": "(visit_id, department_id) composite",
-            "Key Fields": "visit_id (FK), department_id (FK)",
-            "Purpose": "Junction table resolving the Visit-Department M-to-N relationship",
-            "Normalization": "Classic junction table pattern — eliminates M:N without data loss",
-        },
-        {
-            "Collection": "alerts",
-            "Primary Key": "alert_id",
-            "Key Fields": "patient_id (FK), alert_type, severity, title, message, is_acknowledged",
-            "Purpose": "System-generated clinical alerts from triggers",
-            "Normalization": "Separate from visits/patients to track alert lifecycle independently",
-        },
-        {
-            "Collection": "audit_logs",
-            "Primary Key": "log_id",
-            "Key Fields": "patient_id, action, collection_name, document_id, performed_by, changes",
-            "Purpose": "Immutable audit trail for all CRUD operations",
-            "Normalization": "Append-only collection — never updated, ensures audit integrity",
-        },
+        {"Collection": "patients", "Primary Key": "patient_id (PAT-YYYY-NNN)", "Key Fields": "first_name, last_name, date_of_birth, gender, phone, email, address, insurance", "Purpose": "Core patient demographics — central entity", "Normalization": "3NF: all fields depend on patient_id"},
+        {"Collection": "physicians", "Primary Key": "physician_id", "Key Fields": "first_name, last_name, speciality, department_id (FK)", "Purpose": "Physician registry with department assignment", "Normalization": "department_id is FK — details stored separately"},
+        {"Collection": "departments", "Primary Key": "department_id", "Key Fields": "department_name, location", "Purpose": "Hospital department master data", "Normalization": "Prevents repeating department info in every physician"},
+        {"Collection": "visits", "Primary Key": "visit_id", "Key Fields": "visit_date, reason, diagnosis, status, patient_id (FK), physician_id (FK)", "Purpose": "Clinical visit records", "Normalization": "FKs to patients and physicians"},
+        {"Collection": "appointments", "Primary Key": "appointment_id", "Key Fields": "appointment_date_and_time, reason, status, patient_id (FK), physician_id (FK)", "Purpose": "Scheduled appointments with conflict detection", "Normalization": "Same FK pattern as visits"},
+        {"Collection": "referrals", "Primary Key": "referral_id", "Key Fields": "referral_date, reason, status, patient_id (FK), source/target_physician_id (FK)", "Purpose": "Inter-physician referral tracking", "Normalization": "Two FK references to physicians"},
+        {"Collection": "visit_departments", "Primary Key": "(visit_id, department_id)", "Key Fields": "visit_id (FK), department_id (FK)", "Purpose": "Junction table — Visit-Department M:N", "Normalization": "Classic junction table pattern"},
+        {"Collection": "alerts", "Primary Key": "alert_id", "Key Fields": "patient_id (FK), alert_type, severity, title, message", "Purpose": "System-generated clinical alerts", "Normalization": "Separate to track alert lifecycle independently"},
+        {"Collection": "audit_logs", "Primary Key": "log_id", "Key Fields": "patient_id, action, collection_name, document_id, performed_by", "Purpose": "Immutable audit trail", "Normalization": "Append-only — never updated"},
     ]
     st.dataframe(collections_data, use_container_width=True, hide_index=True)
 
-    # Junction table explanation
     with st.expander("VisitDepartment Junction Table — Resolving M-to-N"):
-        st.markdown(
-            "**Problem:** A single visit can involve multiple departments "
-            "(e.g. Emergency + Radiology), and a department serves many visits. "
-            "This is a classic Many-to-Many relationship."
-        )
-
-        st.code(
-            """-- SQL equivalent of the junction table
-CREATE TABLE visit_departments (
+        left, right = st.columns(2)
+        with left:
+            st.markdown("**SQL Equivalent:**")
+            st.code(
+                """CREATE TABLE visit_departments (
     visit_id       VARCHAR(20)  REFERENCES visits(visit_id),
     department_id  VARCHAR(20)  REFERENCES departments(department_id),
     created_at     TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (visit_id, department_id)
-);
-
--- MongoDB equivalent
-db.visit_departments.insertOne({
+);""",
+                language="sql",
+            )
+        with right:
+            st.markdown("**MongoDB Equivalent:**")
+            st.code(
+                """db.visit_departments.insertOne({
     visit_id: "VIS-2024-001",
     department_id: "DEP-2024-003",
     created_at: ISODate()
 })""",
-            language="sql",
-        )
+                language="javascript",
+            )
 
-        st.success(
-            "By introducing the junction table, the M:N relationship between "
-            "Visit and Department is decomposed into two 1:N relationships, "
-            "satisfying BCNF requirements."
-        )
-
-    # ER relationships table
     with st.expander("ER Diagram Relationships"):
         relationships = [
-            {"Entity A": "Patient", "Relationship": "1 ──< N", "Entity B": "Visit", "FK Location": "visits.patient_id", "SQL": "FOREIGN KEY (patient_id) REFERENCES patients(patient_id)"},
-            {"Entity A": "Patient", "Relationship": "1 ──< N", "Entity B": "Appointment", "FK Location": "appointments.patient_id", "SQL": "FOREIGN KEY (patient_id) REFERENCES patients(patient_id)"},
-            {"Entity A": "Patient", "Relationship": "1 ──< N", "Entity B": "Referral", "FK Location": "referrals.patient_id", "SQL": "FOREIGN KEY (patient_id) REFERENCES patients(patient_id)"},
-            {"Entity A": "Physician", "Relationship": "1 ──< N", "Entity B": "Visit", "FK Location": "visits.physician_id", "SQL": "FOREIGN KEY (physician_id) REFERENCES physicians(physician_id)"},
-            {"Entity A": "Physician", "Relationship": "1 ──< N", "Entity B": "Appointment", "FK Location": "appointments.physician_id", "SQL": "FOREIGN KEY (physician_id) REFERENCES physicians(physician_id)"},
-            {"Entity A": "Department", "Relationship": "1 ──< N", "Entity B": "Physician", "FK Location": "physicians.department_id", "SQL": "FOREIGN KEY (department_id) REFERENCES departments(department_id)"},
-            {"Entity A": "Visit", "Relationship": "M ──>< N", "Entity B": "Department", "FK Location": "visit_departments (junction)", "SQL": "Decomposed via junction table into two 1:N"},
-            {"Entity A": "Physician (source)", "Relationship": "1 ──< N", "Entity B": "Referral", "FK Location": "referrals.source_physician_id", "SQL": "FOREIGN KEY (source_physician_id) REFERENCES physicians(physician_id)"},
-            {"Entity A": "Physician (target)", "Relationship": "1 ──< N", "Entity B": "Referral", "FK Location": "referrals.target_physician_id", "SQL": "FOREIGN KEY (target_physician_id) REFERENCES physicians(physician_id)"},
+            {"Entity A": "Patient", "Relationship": "1 ──< N", "Entity B": "Visit", "FK Location": "visits.patient_id"},
+            {"Entity A": "Patient", "Relationship": "1 ──< N", "Entity B": "Appointment", "FK Location": "appointments.patient_id"},
+            {"Entity A": "Patient", "Relationship": "1 ──< N", "Entity B": "Referral", "FK Location": "referrals.patient_id"},
+            {"Entity A": "Physician", "Relationship": "1 ──< N", "Entity B": "Visit", "FK Location": "visits.physician_id"},
+            {"Entity A": "Physician", "Relationship": "1 ──< N", "Entity B": "Appointment", "FK Location": "appointments.physician_id"},
+            {"Entity A": "Department", "Relationship": "1 ──< N", "Entity B": "Physician", "FK Location": "physicians.department_id"},
+            {"Entity A": "Visit", "Relationship": "M ──>< N", "Entity B": "Department", "FK Location": "visit_departments (junction)"},
+            {"Entity A": "Physician (src)", "Relationship": "1 ──< N", "Entity B": "Referral", "FK Location": "referrals.source_physician_id"},
+            {"Entity A": "Physician (tgt)", "Relationship": "1 ──< N", "Entity B": "Referral", "FK Location": "referrals.target_physician_id"},
         ]
         st.dataframe(relationships, use_container_width=True, hide_index=True)
 
@@ -202,46 +141,24 @@ db.visit_departments.insertOne({
 # ============================================================================
 
 def _render_indexes_section(db: DatabaseConnection) -> None:
-    """Render Section 2: Indexes & Constraints with live index info and Pydantic rules.
+    """Render Section 2: Indexes & Constraints.
 
     Args:
         db: Active DatabaseConnection.
     """
-    st.subheader("2. Indexes & Constraints")
-
-    # Live index information
-    st.markdown("**Indexes on `patients` collection**")
-    st.info(
-        "Indexes speed up queries the same way a SQL CREATE INDEX does. "
-        "We create three indexes on the patients collection at connection time."
+    st.markdown(
+        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:16px;">'
+        "Indexes speed up queries. Pydantic models enforce constraints equivalent to SQL CHECK/NOT NULL.</p>",
+        unsafe_allow_html=True,
     )
 
     indexes_data = [
-        {
-            "Index Name": "patient_id_1",
-            "Field(s)": "patient_id",
-            "Type": "UNIQUE, ASCENDING",
-            "SQL Equivalent": "CREATE UNIQUE INDEX idx_patient_id ON patients(patient_id)",
-            "Purpose": "Primary key enforcement — prevents duplicate patient IDs",
-        },
-        {
-            "Index Name": "name_1",
-            "Field(s)": "name",
-            "Type": "ASCENDING",
-            "SQL Equivalent": "CREATE INDEX idx_name ON patients(name)",
-            "Purpose": "Accelerates patient name search queries",
-        },
-        {
-            "Index Name": "date_of_birth_1",
-            "Field(s)": "date_of_birth",
-            "Type": "ASCENDING",
-            "SQL Equivalent": "CREATE INDEX idx_dob ON patients(date_of_birth)",
-            "Purpose": "Speeds up age-range and DOB-based queries",
-        },
+        {"Index Name": "patient_id_1", "Field(s)": "patient_id", "Type": "UNIQUE", "SQL": "CREATE UNIQUE INDEX idx_patient_id ON patients(patient_id)"},
+        {"Index Name": "name_1", "Field(s)": "name", "Type": "ASCENDING", "SQL": "CREATE INDEX idx_name ON patients(name)"},
+        {"Index Name": "date_of_birth_1", "Field(s)": "date_of_birth", "Type": "ASCENDING", "SQL": "CREATE INDEX idx_dob ON patients(date_of_birth)"},
     ]
     st.dataframe(indexes_data, use_container_width=True, hide_index=True)
 
-    # Try to show live indexes from MongoDB
     with st.expander("Live Index Info from MongoDB"):
         try:
             live_indexes = list(db.get_collection("patients").list_indexes())
@@ -250,9 +167,7 @@ def _render_indexes_section(db: DatabaseConnection) -> None:
                 idx_key = dict(idx.get("key", {}))
                 idx_unique = idx.get("unique", False)
                 st.code(
-                    f"Index: {idx_name}\n"
-                    f"  Key:    {idx_key}\n"
-                    f"  Unique: {idx_unique}",
+                    f"Index: {idx_name}\n  Key:    {idx_key}\n  Unique: {idx_unique}",
                     language="text",
                 )
         except Exception as exc:
@@ -260,80 +175,16 @@ def _render_indexes_section(db: DatabaseConnection) -> None:
 
     st.divider()
 
-    # Pydantic validation constraints
-    st.markdown("**Pydantic Validation Constraints (equivalent to SQL CHECK / NOT NULL)**")
-
+    st.markdown("**Pydantic Validation Constraints (SQL CHECK / NOT NULL equivalents)**")
     constraints_data = [
-        {
-            "Model": "Patient",
-            "Field": "patient_id",
-            "Constraint": "Regex: PAT-\\d{4}-\\d{3}",
-            "SQL Equivalent": "CHECK (patient_id ~ '^PAT-\\d{4}-\\d{3}$')",
-            "Enforcement": "@field_validator with regex match",
-        },
-        {
-            "Model": "Patient",
-            "Field": "first_name",
-            "Constraint": "min_length=1, NOT NULL",
-            "SQL Equivalent": "VARCHAR NOT NULL CHECK (LENGTH(first_name) >= 1)",
-            "Enforcement": "Pydantic Field(min_length=1)",
-        },
-        {
-            "Model": "Patient",
-            "Field": "date_of_birth",
-            "Constraint": "Cannot be in the future",
-            "SQL Equivalent": "CHECK (date_of_birth <= CURRENT_DATE)",
-            "Enforcement": "@field_validator — dob_not_future",
-        },
-        {
-            "Model": "Patient",
-            "Field": "gender",
-            "Constraint": "Enum: male, female, other, prefer_not_to_say",
-            "SQL Equivalent": "CHECK (gender IN ('male', 'female', 'other', 'prefer_not_to_say'))",
-            "Enforcement": "Pydantic Gender(str, Enum)",
-        },
-        {
-            "Model": "Patient",
-            "Field": "age",
-            "Constraint": "0 <= age <= 150",
-            "SQL Equivalent": "CHECK (age BETWEEN 0 AND 150)",
-            "Enforcement": "Field(ge=0, le=150) — auto-computed by trigger",
-        },
-        {
-            "Model": "VitalSigns",
-            "Field": "blood_pressure_systolic",
-            "Constraint": "50 <= value <= 300",
-            "SQL Equivalent": "CHECK (bp_systolic BETWEEN 50 AND 300)",
-            "Enforcement": "Field(ge=50, le=300)",
-        },
-        {
-            "Model": "VitalSigns",
-            "Field": "oxygen_saturation",
-            "Constraint": "50.0 <= value <= 100.0",
-            "SQL Equivalent": "CHECK (spo2 BETWEEN 50.0 AND 100.0)",
-            "Enforcement": "Field(ge=50.0, le=100.0)",
-        },
-        {
-            "Model": "Appointment",
-            "Field": "status + cancellation_reason",
-            "Constraint": "cancellation_reason required when status='cancelled'",
-            "SQL Equivalent": "CHECK (status != 'cancelled' OR cancellation_reason IS NOT NULL)",
-            "Enforcement": "@model_validator — cross-field validation",
-        },
-        {
-            "Model": "Visit",
-            "Field": "follow_up_date",
-            "Constraint": "Cannot be in the past",
-            "SQL Equivalent": "CHECK (follow_up_date >= CURRENT_DATE)",
-            "Enforcement": "@field_validator — follow_up_not_before_visit",
-        },
-        {
-            "Model": "Alert",
-            "Field": "is_acknowledged + acknowledged_by",
-            "Constraint": "acknowledged_by required when is_acknowledged=True",
-            "SQL Equivalent": "CHECK (NOT is_acknowledged OR acknowledged_by IS NOT NULL)",
-            "Enforcement": "@model_validator — acknowledged_fields_consistent",
-        },
+        {"Model": "Patient", "Field": "patient_id", "Constraint": "Regex: PAT-\\d{4}-\\d{3}", "SQL": "CHECK (patient_id ~ '^PAT-\\d{4}-\\d{3}$')"},
+        {"Model": "Patient", "Field": "first_name", "Constraint": "min_length=1, NOT NULL", "SQL": "VARCHAR NOT NULL CHECK (LENGTH >= 1)"},
+        {"Model": "Patient", "Field": "date_of_birth", "Constraint": "Cannot be in the future", "SQL": "CHECK (date_of_birth <= CURRENT_DATE)"},
+        {"Model": "Patient", "Field": "gender", "Constraint": "Enum: male, female, other, prefer_not_to_say", "SQL": "CHECK (gender IN (...))"},
+        {"Model": "Patient", "Field": "age", "Constraint": "0 <= age <= 150", "SQL": "CHECK (age BETWEEN 0 AND 150)"},
+        {"Model": "VitalSigns", "Field": "blood_pressure_systolic", "Constraint": "50 <= value <= 300", "SQL": "CHECK (bp_systolic BETWEEN 50 AND 300)"},
+        {"Model": "VitalSigns", "Field": "oxygen_saturation", "Constraint": "50.0 <= value <= 100.0", "SQL": "CHECK (spo2 BETWEEN 50.0 AND 100.0)"},
+        {"Model": "Appointment", "Field": "status + cancellation_reason", "Constraint": "reason required when cancelled", "SQL": "CHECK (status != 'cancelled' OR reason IS NOT NULL)"},
     ]
     st.dataframe(constraints_data, use_container_width=True, hide_index=True)
 
@@ -342,78 +193,17 @@ def _render_indexes_section(db: DatabaseConnection) -> None:
 # Section 3 — Live Query Execution
 # ============================================================================
 
-# Query metadata — maps function name to display info
 _QUERY_REGISTRY: list[dict[str, Any]] = [
-    {
-        "name": "Patients with Visit Count",
-        "function": get_patients_with_visit_count,
-        "sql": "SELECT p.patient_id, p.first_name, p.last_name, COUNT(v.visit_id) AS visit_count\nFROM patients p LEFT JOIN visits v ON p.patient_id = v.patient_id\nGROUP BY p.patient_id ORDER BY visit_count DESC",
-        "key_ops": "$lookup (LEFT JOIN), $addFields + $size (COUNT), $sort (ORDER BY)",
-        "args": lambda db: (db,),
-    },
-    {
-        "name": "Visit Frequency by Month",
-        "function": get_visit_frequency_by_month,
-        "sql": "SELECT YEAR(visit_date) AS year, MONTH(visit_date) AS month, COUNT(*) AS visit_count\nFROM visits GROUP BY YEAR(visit_date), MONTH(visit_date)\nORDER BY year, month",
-        "key_ops": "$addFields + $year/$month, $group (GROUP BY), $sort",
-        "args": lambda db: (db,),
-    },
-    {
-        "name": "Top Diagnoses",
-        "function": get_top_diagnoses,
-        "sql": "SELECT diagnosis, COUNT(*) AS frequency FROM visits\nWHERE diagnosis IS NOT NULL\nGROUP BY diagnosis ORDER BY frequency DESC LIMIT 10",
-        "key_ops": "$match (WHERE), $group (GROUP BY + COUNT), $sort, $limit",
-        "args": lambda db: (db,),
-    },
-    {
-        "name": "Patients per Department",
-        "function": get_patients_per_department,
-        "sql": "SELECT d.department_name, COUNT(DISTINCT v.patient_id) AS unique_patients\nFROM departments d LEFT JOIN visit_departments vd ON d.department_id = vd.department_id\nLEFT JOIN visits v ON vd.visit_id = v.visit_id\nGROUP BY d.department_id",
-        "key_ops": "$lookup (double JOIN via junction), $reduce + $setUnion (COUNT DISTINCT)",
-        "args": lambda db: (db,),
-    },
-    {
-        "name": "Patients with Pending Appointments",
-        "function": get_patients_with_pending_appointments,
-        "sql": "SELECT p.*, a.*, ph.first_name || ' ' || ph.last_name AS physician_name\nFROM appointments a JOIN patients p ON a.patient_id = p.patient_id\nJOIN physicians ph ON a.physician_id = ph.physician_id\nWHERE a.status IN ('scheduled', 'confirmed')",
-        "key_ops": "$match (WHERE IN), $lookup x2 (double JOIN), $unwind, $concat",
-        "args": lambda db: (db,),
-    },
-    {
-        "name": "Referral Network Summary",
-        "function": get_referral_network_summary,
-        "sql": "SELECT sp.name AS source, tp.name AS target, COUNT(*) AS referral_count\nFROM referrals r JOIN physicians sp ON r.source_physician_id = sp.physician_id\nJOIN physicians tp ON r.target_physician_id = tp.physician_id\nGROUP BY r.source_physician_id, r.target_physician_id",
-        "key_ops": "$group (composite _id), $lookup x2 (self-join on physicians), $concat",
-        "args": lambda db: (db,),
-    },
-    {
-        "name": "High Frequency Visitors",
-        "function": get_high_frequency_visitors,
-        "sql": "SELECT p.patient_id, COUNT(v.visit_id) AS visit_count\nFROM visits v JOIN patients p ON v.patient_id = p.patient_id\nWHERE v.visit_date >= NOW() - INTERVAL 30 DAY\nGROUP BY v.patient_id HAVING COUNT(*) >= 3",
-        "key_ops": "$match (WHERE date), $group + $match (GROUP BY + HAVING), $lookup",
-        "args": lambda db: (db,),
-    },
-    {
-        "name": "Patient Full Profile",
-        "function": get_patient_full_profile,
-        "sql": "SELECT p.*, v.*, a.*, r.*, d.department_name\nFROM patients p LEFT JOIN visits v ... LEFT JOIN appointments a ...\nLEFT JOIN referrals r ... LEFT JOIN visit_departments vd ...\nLEFT JOIN departments d ... WHERE p.patient_id = :id",
-        "key_ops": "Nested pipeline $lookup x5 (6-table JOIN in single pass), $unwind",
-        "args": lambda db: (db, _get_sample_patient_id(db)),
-    },
-    {
-        "name": "Physician Workload",
-        "function": get_physician_workload,
-        "sql": "SELECT ph.physician_id, ph.name, COALESCE(v.cnt, 0) + COALESCE(a.cnt, 0) AS workload\nFROM physicians ph LEFT JOIN (SELECT physician_id, COUNT(*) cnt FROM visits GROUP BY physician_id) v ...\nLEFT JOIN (SELECT physician_id, COUNT(*) cnt FROM appointments GROUP BY physician_id) a ...",
-        "key_ops": "$lookup with pipeline (subquery JOINs), $ifNull (COALESCE), $add",
-        "args": lambda db: (db,),
-    },
-    {
-        "name": "Department Statistics",
-        "function": get_department_statistics,
-        "sql": "SELECT d.department_name, COUNT(vd.visit_id) AS total_visits,\nCOUNT(DISTINCT v.patient_id) AS unique_patients,\n(SELECT TOP 1 diagnosis ...) AS top_diagnosis\nFROM departments d LEFT JOIN visit_departments vd ...\nLEFT JOIN visits v ... GROUP BY d.department_id",
-        "key_ops": "Double $lookup (junction), nested pipeline (correlated subquery), $reduce (DISTINCT)",
-        "args": lambda db: (db,),
-    },
+    {"name": "Patients with Visit Count", "function": get_patients_with_visit_count, "sql": "SELECT p.patient_id, p.first_name, p.last_name, COUNT(v.visit_id) AS visit_count\nFROM patients p LEFT JOIN visits v ON p.patient_id = v.patient_id\nGROUP BY p.patient_id ORDER BY visit_count DESC", "key_ops": "$lookup, $addFields + $size, $sort", "args": lambda db: (db,)},
+    {"name": "Visit Frequency by Month", "function": get_visit_frequency_by_month, "sql": "SELECT YEAR(visit_date), MONTH(visit_date), COUNT(*)\nFROM visits GROUP BY YEAR, MONTH ORDER BY year, month", "key_ops": "$addFields, $group, $sort", "args": lambda db: (db,)},
+    {"name": "Top Diagnoses", "function": get_top_diagnoses, "sql": "SELECT diagnosis, COUNT(*) AS frequency FROM visits\nWHERE diagnosis IS NOT NULL\nGROUP BY diagnosis ORDER BY frequency DESC LIMIT 10", "key_ops": "$match, $group, $sort, $limit", "args": lambda db: (db,)},
+    {"name": "Patients per Department", "function": get_patients_per_department, "sql": "SELECT d.department_name, COUNT(DISTINCT v.patient_id)\nFROM departments d LEFT JOIN visit_departments vd ... LEFT JOIN visits v ...\nGROUP BY d.department_id", "key_ops": "$lookup (double JOIN), $reduce + $setUnion", "args": lambda db: (db,)},
+    {"name": "Patients with Pending Appointments", "function": get_patients_with_pending_appointments, "sql": "SELECT p.*, a.*, ph.name AS physician_name\nFROM appointments a JOIN patients p ... JOIN physicians ph ...\nWHERE a.status IN ('scheduled', 'confirmed')", "key_ops": "$match, $lookup x2, $unwind, $concat", "args": lambda db: (db,)},
+    {"name": "Referral Network Summary", "function": get_referral_network_summary, "sql": "SELECT sp.name AS source, tp.name AS target, COUNT(*)\nFROM referrals r JOIN physicians sp ... JOIN physicians tp ...\nGROUP BY source_id, target_id", "key_ops": "$group, $lookup x2, $concat", "args": lambda db: (db,)},
+    {"name": "High Frequency Visitors", "function": get_high_frequency_visitors, "sql": "SELECT p.patient_id, COUNT(v.visit_id)\nFROM visits v JOIN patients p ... WHERE v.visit_date >= NOW() - 30 DAY\nGROUP BY patient_id HAVING COUNT(*) >= 3", "key_ops": "$match, $group + $match (HAVING), $lookup", "args": lambda db: (db,)},
+    {"name": "Patient Full Profile", "function": get_patient_full_profile, "sql": "SELECT p.*, v.*, a.*, r.*, d.department_name\nFROM patients p LEFT JOIN visits v ... LEFT JOIN appointments a ...\nLEFT JOIN referrals r ... WHERE p.patient_id = :id", "key_ops": "Nested pipeline $lookup x5 (6-table JOIN)", "args": lambda db: (db, _get_sample_patient_id(db))},
+    {"name": "Physician Workload", "function": get_physician_workload, "sql": "SELECT ph.physician_id, ph.name, COALESCE(v.cnt, 0) + COALESCE(a.cnt, 0)\nFROM physicians ph LEFT JOIN (...) v ... LEFT JOIN (...) a ...", "key_ops": "$lookup with pipeline, $ifNull, $add", "args": lambda db: (db,)},
+    {"name": "Department Statistics", "function": get_department_statistics, "sql": "SELECT d.department_name, COUNT(vd.visit_id),\nCOUNT(DISTINCT v.patient_id), (TOP 1 diagnosis)\nFROM departments d LEFT JOIN ...", "key_ops": "Double $lookup, nested pipeline, $reduce", "args": lambda db: (db,)},
 ]
 
 
@@ -436,56 +226,61 @@ def _get_sample_patient_id(db: DatabaseConnection) -> str:
 
 
 def _render_queries_section(db: DatabaseConnection) -> None:
-    """Render Section 3: Live Query Execution with all 10 aggregation pipelines.
+    """Render Section 3: Live Query Execution.
 
     Args:
         db: Active DatabaseConnection.
     """
-    st.subheader("3. Live Query Execution")
-    st.info(
-        "All 10 aggregation pipelines are MongoDB equivalents of SQL queries. "
-        "Each uses `$lookup` for JOINs, `$group` for GROUP BY, `$sort` for "
-        "ORDER BY, and `$match` for WHERE / HAVING clauses."
+    st.markdown(
+        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:16px;">'
+        "All 10 aggregation pipelines are MongoDB equivalents of SQL queries.</p>",
+        unsafe_allow_html=True,
     )
 
-    # Run All Queries button with timing
-    if st.button("Run All 10 Queries", type="primary", use_container_width=True):
-        start = time.time()
-        try:
-            all_results = run_all_queries(db)
-            elapsed = time.time() - start
-            st.success(f"All 10 queries executed in **{elapsed:.2f}s**")
-            st.session_state["all_query_results"] = all_results
-            st.session_state["all_query_time"] = elapsed
-        except Exception as exc:
-            st.error(f"Error running queries: {exc}")
+    # Metrics bar
+    total_run = st.session_state.get("dbms_queries_run", 0)
+    avg_time = st.session_state.get("dbms_avg_time", 0.0)
+    last_run = st.session_state.get("dbms_last_run", "—")
 
-    # Show cached results if available
-    if "all_query_results" in st.session_state:
-        elapsed = st.session_state.get("all_query_time", 0)
-        st.caption(f"Last run: {elapsed:.2f}s total")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Queries Run", total_run)
+    m2.metric("Avg Time", f"{avg_time:.3f}s")
+    m3.metric("Last Run", last_run)
+
+    with m4:
+        if st.button("Run All 10", type="primary", use_container_width=True):
+            start = time.time()
+            try:
+                all_results = run_all_queries(db)
+                elapsed = time.time() - start
+                st.session_state["dbms_queries_run"] = st.session_state.get("dbms_queries_run", 0) + 10
+                st.session_state["dbms_avg_time"] = elapsed / 10
+                st.session_state["dbms_last_run"] = datetime.now().strftime("%H:%M:%S")
+                st.session_state["all_query_results"] = all_results
+                st.success(f"All 10 queries executed in **{elapsed:.2f}s**")
+            except Exception as exc:
+                st.error(f"Error: {exc}")
 
     st.divider()
 
-    # Individual query expanders
     for idx, qinfo in enumerate(_QUERY_REGISTRY, 1):
         with st.expander(f"Query {idx}: {qinfo['name']}"):
-            # SQL equivalent
-            st.markdown("**SQL Equivalent:**")
-            st.code(qinfo["sql"], language="sql")
+            # Side by side: SQL left, MongoDB ops right
+            left, right = st.columns(2)
+            with left:
+                st.markdown("**SQL Equivalent:**")
+                st.code(qinfo["sql"], language="sql")
+            with right:
+                st.markdown("**MongoDB Operations:**")
+                st.code(qinfo["key_ops"], language="text")
 
-            # Key MongoDB operations used
-            st.markdown(f"**MongoDB Operations:** `{qinfo['key_ops']}`")
+                with st.expander("View Python Pipeline"):
+                    try:
+                        source = inspect.getsource(qinfo["function"])
+                        st.code(source, language="python")
+                    except Exception:
+                        st.caption("Source not available at runtime.")
 
-            # Show the Python function source
-            with st.expander("View Python Pipeline Code"):
-                try:
-                    source = inspect.getsource(qinfo["function"])
-                    st.code(source, language="python")
-                except Exception:
-                    st.caption("Source not available at runtime.")
-
-            # Run individual query
             if st.button(f"Run Query {idx}", key=f"run_q{idx}"):
                 try:
                     q_start = time.time()
@@ -493,14 +288,18 @@ def _render_queries_section(db: DatabaseConnection) -> None:
                     result = qinfo["function"](*args)
                     q_elapsed = time.time() - q_start
 
-                    st.success(f"Returned **{len(result) if isinstance(result, list) else 1}** rows in {q_elapsed:.3f}s")
+                    st.session_state["dbms_queries_run"] = st.session_state.get("dbms_queries_run", 0) + 1
+                    st.session_state["dbms_last_run"] = datetime.now().strftime("%H:%M:%S")
+
+                    rows = len(result) if isinstance(result, list) else 1
+                    st.success(f"**{rows}** rows in {q_elapsed:.3f}s")
 
                     if isinstance(result, dict):
                         st.json(result)
                     elif isinstance(result, list) and result:
                         st.dataframe(result, use_container_width=True, hide_index=True)
                     else:
-                        st.info("Query returned no results — seed data may not be loaded.")
+                        st.info("No results — seed data may not be loaded.")
                 except Exception as exc:
                     st.error(f"Query failed: {exc}")
 
@@ -510,108 +309,26 @@ def _render_queries_section(db: DatabaseConnection) -> None:
 # ============================================================================
 
 _TRIGGER_INFO: list[dict[str, str]] = [
-    {
-        "name": "audit_log_trigger",
-        "fires": "AFTER INSERT / UPDATE / DELETE on all collections",
-        "description": "Writes an immutable audit row to audit_logs every time patient data is created, read, updated, or deleted. Captures who did what, when, and the before/after diff for updates.",
-        "sql": """CREATE TRIGGER trg_audit_log
-AFTER INSERT OR UPDATE OR DELETE ON patients
-FOR EACH ROW
-BEGIN
-    INSERT INTO audit_logs (log_id, patient_id, action, collection_name,
-                           document_id, performed_by, changes, timestamp)
-    VALUES (gen_id(), :patient_id, :action, 'patients',
-            :doc_id, :user, :diff, CURRENT_TIMESTAMP);
-END;""",
-    },
-    {
-        "name": "age_calculator_trigger",
-        "fires": "BEFORE INSERT on patients",
-        "description": "Computes the patient's age in whole years from date_of_birth and stamps it into the document before insertion. Recomputes on DOB update.",
-        "sql": """CREATE TRIGGER trg_age_calculator
-BEFORE INSERT ON patients
-FOR EACH ROW
-BEGIN
-    SET NEW.age = TIMESTAMPDIFF(YEAR, NEW.date_of_birth, CURDATE());
-    IF NEW.date_of_birth > CURDATE() THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'date_of_birth cannot be in the future';
-    END IF;
-END;""",
-    },
-    {
-        "name": "visit_frequency_alert_trigger",
-        "fires": "AFTER INSERT on visits",
-        "description": "Counts how many visits a patient has had in the last 30 days. If the count exceeds 3, inserts a HIGH severity alert into the alerts collection.",
-        "sql": """CREATE TRIGGER trg_visit_frequency
-AFTER INSERT ON visits
-FOR EACH ROW
-BEGIN
-    DECLARE visit_count INT;
-    SELECT COUNT(*) INTO visit_count FROM visits
-    WHERE patient_id = NEW.patient_id
-      AND visit_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY);
-    IF visit_count > 3 THEN
-        INSERT INTO alerts (alert_id, patient_id, alert_type, severity, message)
-        VALUES (gen_id(), NEW.patient_id, 'visit_frequency', 'high',
-                CONCAT('Patient has ', visit_count, ' visits in 30 days'));
-    END IF;
-END;""",
-    },
-    {
-        "name": "abnormal_vitals_trigger",
-        "fires": "AFTER INSERT on visits (when vital_signs present)",
-        "description": "Inspects each vital sign (BP, heart rate, temperature, respiratory rate, SpO2) against normal clinical ranges. Creates one alert per abnormal reading with appropriate severity.",
-        "sql": """CREATE TRIGGER trg_abnormal_vitals
-AFTER INSERT ON visits
-FOR EACH ROW
-BEGIN
-    IF NEW.bp_systolic < 90 OR NEW.bp_systolic > 140 THEN
-        INSERT INTO alerts (alert_type, severity, message)
-        VALUES ('abnormal_vitals', 'high', 'Abnormal systolic BP');
-    END IF;
-    -- Similar checks for diastolic, heart_rate, temperature,
-    -- respiratory_rate, oxygen_saturation...
-END;""",
-    },
-    {
-        "name": "appointment_conflict_trigger",
-        "fires": "BEFORE INSERT on appointments",
-        "description": "Checks if the physician already has a scheduled/confirmed appointment within 30 minutes of the proposed time. Raises a ValueError (equivalent to SIGNAL SQLSTATE) to abort the insert.",
-        "sql": """CREATE TRIGGER trg_appointment_conflict
-BEFORE INSERT ON appointments
-FOR EACH ROW
-BEGIN
-    DECLARE conflict_count INT;
-    SELECT COUNT(*) INTO conflict_count FROM appointments
-    WHERE physician_id = NEW.physician_id
-      AND status IN ('scheduled', 'confirmed')
-      AND appointment_date_and_time BETWEEN
-          DATE_SUB(NEW.appointment_date_and_time, INTERVAL 30 MINUTE)
-          AND DATE_ADD(NEW.appointment_date_and_time, INTERVAL 30 MINUTE);
-    IF conflict_count > 0 THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Scheduling conflict detected';
-    END IF;
-END;""",
-    },
+    {"name": "audit_log_trigger", "fires": "AFTER INSERT / UPDATE / DELETE on all collections", "description": "Writes an immutable audit row to audit_logs for every CRUD operation.", "sql": "CREATE TRIGGER trg_audit_log\nAFTER INSERT OR UPDATE OR DELETE ON patients\nFOR EACH ROW\nBEGIN\n    INSERT INTO audit_logs (log_id, patient_id, action, ...)\n    VALUES (gen_id(), :patient_id, :action, ...);\nEND;"},
+    {"name": "age_calculator_trigger", "fires": "BEFORE INSERT on patients", "description": "Computes age from date_of_birth before insertion.", "sql": "CREATE TRIGGER trg_age_calculator\nBEFORE INSERT ON patients\nFOR EACH ROW\nBEGIN\n    SET NEW.age = TIMESTAMPDIFF(YEAR, NEW.date_of_birth, CURDATE());\nEND;"},
+    {"name": "visit_frequency_alert_trigger", "fires": "AFTER INSERT on visits", "description": "Raises HIGH alert if patient has >3 visits in 30 days.", "sql": "CREATE TRIGGER trg_visit_frequency\nAFTER INSERT ON visits\nFOR EACH ROW\nBEGIN\n    SELECT COUNT(*) INTO visit_count FROM visits\n    WHERE patient_id = NEW.patient_id\n      AND visit_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY);\n    IF visit_count > 3 THEN\n        INSERT INTO alerts (...);\n    END IF;\nEND;"},
+    {"name": "abnormal_vitals_trigger", "fires": "AFTER INSERT on visits (when vital_signs present)", "description": "Creates alerts for vital signs outside normal clinical ranges.", "sql": "CREATE TRIGGER trg_abnormal_vitals\nAFTER INSERT ON visits\nFOR EACH ROW\nBEGIN\n    IF NEW.bp_systolic < 90 OR NEW.bp_systolic > 140 THEN\n        INSERT INTO alerts (alert_type, severity, message)\n        VALUES ('abnormal_vitals', 'high', 'Abnormal BP');\n    END IF;\n    -- similar for HR, temp, SpO2, RR\nEND;"},
+    {"name": "appointment_conflict_trigger", "fires": "BEFORE INSERT on appointments", "description": "Blocks double-booking within 30-minute slots. Raises ValueError to abort insert.", "sql": "CREATE TRIGGER trg_appointment_conflict\nBEFORE INSERT ON appointments\nFOR EACH ROW\nBEGIN\n    SELECT COUNT(*) INTO conflict_count FROM appointments\n    WHERE physician_id = NEW.physician_id\n      AND status IN ('scheduled', 'confirmed')\n      AND appointment_date_and_time BETWEEN\n          DATE_SUB(NEW.time, INTERVAL 30 MINUTE)\n          AND DATE_ADD(NEW.time, INTERVAL 30 MINUTE);\n    IF conflict_count > 0 THEN\n        SIGNAL SQLSTATE '45000';\n    END IF;\nEND;"},
 ]
 
 
 def _render_triggers_section(db: DatabaseConnection) -> None:
-    """Render Section 4: Trigger Demonstrations with SQL equivalents and live demos.
+    """Render Section 4: Trigger Demonstrations.
 
     Args:
         db: Active DatabaseConnection.
     """
-    st.subheader("4. Trigger Demonstrations")
-    st.info(
-        "Triggers fire automatically inside CRUD operations — the caller never "
-        "invokes them directly, exactly like SQL `CREATE TRIGGER` statements. "
-        "Our 5 triggers cover BEFORE INSERT, AFTER INSERT, and AFTER UPDATE events."
+    st.markdown(
+        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:16px;">'
+        "Triggers fire automatically inside CRUD operations — exactly like SQL CREATE TRIGGER.</p>",
+        unsafe_allow_html=True,
     )
 
-    # Overview table
     trigger_overview = [
         {"Trigger": t["name"], "Fires": t["fires"], "Description": t["description"]}
         for t in _TRIGGER_INFO
@@ -620,17 +337,18 @@ def _render_triggers_section(db: DatabaseConnection) -> None:
 
     st.divider()
 
-    # Detailed trigger cards with SQL + live demo
     for tinfo in _TRIGGER_INFO:
         with st.expander(f"Trigger: {tinfo['name']}"):
             st.markdown(f"**When it fires:** {tinfo['fires']}")
             st.markdown(f"**What it does:** {tinfo['description']}")
 
-            st.markdown("**SQL Equivalent:**")
-            st.code(tinfo["sql"], language="sql")
-
-            # Show Python source
-            with st.expander("View Python Implementation"):
+            # Side by side SQL / Python
+            left, right = st.columns(2)
+            with left:
+                st.markdown("**SQL Equivalent:**")
+                st.code(tinfo["sql"], language="sql")
+            with right:
+                st.markdown("**Python Implementation:**")
                 trigger_fn_map = {
                     "audit_log_trigger": audit_log_trigger,
                     "age_calculator_trigger": age_calculator_trigger,
@@ -645,7 +363,6 @@ def _render_triggers_section(db: DatabaseConnection) -> None:
                     except Exception:
                         st.caption("Source not available.")
 
-            # Live demo buttons
             _render_trigger_demo(db, tinfo["name"])
 
 
@@ -662,8 +379,6 @@ def _render_trigger_demo(db: DatabaseConnection, trigger_name: str) -> None:
                 test_dob = date(1995, 6, 15)
                 age = age_calculator_trigger(test_dob)
                 st.success(f"Input DOB: {test_dob} => Computed age: **{age} years**")
-
-                # Also test future date rejection
                 try:
                     age_calculator_trigger(date(2099, 1, 1))
                     st.error("Should have raised ValueError for future date!")
@@ -677,25 +392,19 @@ def _render_trigger_demo(db: DatabaseConnection, trigger_name: str) -> None:
             try:
                 sample_pid = _get_sample_patient_id(db)
                 audit_log_trigger(
-                    db,
-                    patient_id=sample_pid,
-                    action=AuditAction.READ,
-                    collection_name="patients",
-                    document_id=sample_pid,
-                    performed_by="dbms_demo_page",
-                    performed_by_role="demo",
+                    db, patient_id=sample_pid, action=AuditAction.READ,
+                    collection_name="patients", document_id=sample_pid,
+                    performed_by="dbms_demo_page", performed_by_role="demo",
                 )
-                # Verify it was written
                 latest = db.get_collection("audit_logs").find_one(
-                    {"performed_by": "dbms_demo_page"},
-                    {"_id": 0},
+                    {"performed_by": "dbms_demo_page"}, {"_id": 0},
                     sort=[("timestamp", -1)],
                 )
                 if latest:
-                    st.success("Audit log entry written successfully!")
+                    st.success("Audit log entry written!")
                     st.json({k: str(v) for k, v in latest.items()})
                 else:
-                    st.warning("Entry was written but could not be read back immediately.")
+                    st.warning("Entry written but could not be read back immediately.")
             except Exception as exc:
                 st.error(f"Demo error: {exc}")
 
@@ -706,22 +415,14 @@ def _render_trigger_demo(db: DatabaseConnection, trigger_name: str) -> None:
                 count_before = db.get_collection("alerts").count_documents(
                     {"patient_id": sample_pid, "alert_type": "visit_frequency"}
                 )
-                visit_frequency_alert_trigger(
-                    db, sample_pid, "VIS-DEMO-001", threshold=0, window_days=365
-                )
+                visit_frequency_alert_trigger(db, sample_pid, "VIS-DEMO-001", threshold=0, window_days=365)
                 count_after = db.get_collection("alerts").count_documents(
                     {"patient_id": sample_pid, "alert_type": "visit_frequency"}
                 )
                 if count_after > count_before:
-                    st.success(
-                        f"Alert raised for {sample_pid}! "
-                        f"(alerts before: {count_before}, after: {count_after})"
-                    )
+                    st.success(f"Alert raised for {sample_pid}! (before: {count_before}, after: {count_after})")
                 else:
-                    st.info(
-                        f"No alert raised — patient {sample_pid} does not exceed "
-                        f"the threshold in the last 365 days."
-                    )
+                    st.info(f"No alert — {sample_pid} does not exceed threshold.")
             except Exception as exc:
                 st.error(f"Demo error: {exc}")
 
@@ -729,12 +430,9 @@ def _render_trigger_demo(db: DatabaseConnection, trigger_name: str) -> None:
         if st.button("Demo: Check abnormal vitals", key="demo_vitals"):
             try:
                 sample_pid = _get_sample_patient_id(db)
-                # Deliberately abnormal values to trigger alerts
                 abnormal = VitalSigns(
-                    blood_pressure_systolic=180,
-                    heart_rate=120,
-                    temperature_celsius=39.5,
-                    oxygen_saturation=88.0,
+                    blood_pressure_systolic=180, heart_rate=120,
+                    temperature_celsius=39.5, oxygen_saturation=88.0,
                 )
                 count_before = db.get_collection("alerts").count_documents(
                     {"patient_id": sample_pid, "alert_type": "abnormal_vitals"}
@@ -745,9 +443,8 @@ def _render_trigger_demo(db: DatabaseConnection, trigger_name: str) -> None:
                 )
                 new_alerts = count_after - count_before
                 st.success(
-                    f"Trigger fired! **{new_alerts}** abnormal vitals alerts created.\n\n"
-                    f"Test values: BP 180 mmHg (HIGH), HR 120 bpm (HIGH), "
-                    f"Temp 39.5C (HIGH), SpO2 88% (CRITICAL)"
+                    f"**{new_alerts}** abnormal vitals alerts created.\n\n"
+                    f"BP 180 (HIGH), HR 120 (HIGH), Temp 39.5C (HIGH), SpO2 88% (CRITICAL)"
                 )
             except Exception as exc:
                 st.error(f"Demo error: {exc}")
@@ -755,7 +452,6 @@ def _render_trigger_demo(db: DatabaseConnection, trigger_name: str) -> None:
     elif trigger_name == "appointment_conflict_trigger":
         if st.button("Demo: Detect scheduling conflict", key="demo_conflict"):
             try:
-                # Find any physician with an existing appointment
                 sample_appt = db.get_collection("appointments").find_one(
                     {"status": {"$in": ["scheduled", "confirmed"]}},
                     {"physician_id": 1, "appointment_date_and_time": 1, "_id": 0},
@@ -763,14 +459,13 @@ def _render_trigger_demo(db: DatabaseConnection, trigger_name: str) -> None:
                 if sample_appt:
                     phy_id = sample_appt["physician_id"]
                     existing_time = sample_appt["appointment_date_and_time"]
-                    # Try booking at the exact same time — should conflict
                     try:
                         appointment_conflict_trigger(db, phy_id, existing_time)
-                        st.info("No conflict found (appointment may have been cancelled).")
+                        st.info("No conflict found.")
                     except ValueError as exc:
                         st.success(f"Conflict correctly detected: {exc}")
                 else:
-                    st.info("No active appointments found to test against. Schedule one first.")
+                    st.info("No active appointments to test against.")
             except Exception as exc:
                 st.error(f"Demo error: {exc}")
 
@@ -810,15 +505,9 @@ def generate_patient_summary(db: DatabaseConnection, patient_id: str) -> Optiona
         if not patient:
             return None
 
-        total_visits = db.get_collection("visits").count_documents(
-            {"patient_id": patient_id}
-        )
-        total_appointments = db.get_collection("appointments").count_documents(
-            {"patient_id": patient_id}
-        )
-        total_referrals = db.get_collection("referrals").count_documents(
-            {"patient_id": patient_id}
-        )
+        total_visits = db.get_collection("visits").count_documents({"patient_id": patient_id})
+        total_appointments = db.get_collection("appointments").count_documents({"patient_id": patient_id})
+        total_referrals = db.get_collection("referrals").count_documents({"patient_id": patient_id})
         active_alerts = db.get_collection("alerts").count_documents(
             {"patient_id": patient_id, "is_acknowledged": False}
         )
@@ -844,9 +533,6 @@ def generate_patient_summary(db: DatabaseConnection, patient_id: str) -> Optiona
 def get_department_report(db: DatabaseConnection, department_id: str) -> Optional[dict]:
     """Stored Procedure 2: Generate department analytics report.
 
-    Multi-step procedure that collects physicians, visit stats, and top
-    diagnoses for a single department.
-
     SQL equivalent:
         CREATE PROCEDURE sp_department_report(IN d_id VARCHAR(20))
         BEGIN
@@ -854,9 +540,6 @@ def get_department_report(db: DatabaseConnection, department_id: str) -> Optiona
             SELECT * FROM physicians WHERE department_id = d_id;
             SELECT COUNT(DISTINCT v.patient_id) FROM visit_departments vd
                 JOIN visits v ON vd.visit_id = v.visit_id WHERE vd.department_id = d_id;
-            SELECT diagnosis, COUNT(*) FROM visits v JOIN visit_departments vd
-                ON v.visit_id = vd.visit_id WHERE vd.department_id = d_id
-                GROUP BY diagnosis ORDER BY COUNT(*) DESC LIMIT 5;
         END;
 
     Args:
@@ -879,7 +562,6 @@ def get_department_report(db: DatabaseConnection, department_id: str) -> Optiona
             .sort("last_name", 1)
         )
 
-        # Get visit IDs linked to this department via junction table
         junctions = list(
             db.get_collection("visit_departments")
             .find({"department_id": department_id}, {"visit_id": 1, "_id": 0})
@@ -892,10 +574,7 @@ def get_department_report(db: DatabaseConnection, department_id: str) -> Optiona
         if visit_ids:
             visits = list(
                 db.get_collection("visits")
-                .find(
-                    {"visit_id": {"$in": visit_ids}},
-                    {"patient_id": 1, "diagnosis": 1, "_id": 0},
-                )
+                .find({"visit_id": {"$in": visit_ids}}, {"patient_id": 1, "diagnosis": 1, "_id": 0})
             )
             for v in visits:
                 unique_patients.add(v.get("patient_id", ""))
@@ -903,9 +582,7 @@ def get_department_report(db: DatabaseConnection, department_id: str) -> Optiona
                 if diag:
                     diagnosis_counts[diag] = diagnosis_counts.get(diag, 0) + 1
 
-        top_diagnoses = sorted(
-            diagnosis_counts.items(), key=lambda x: x[1], reverse=True
-        )[:5]
+        top_diagnoses = sorted(diagnosis_counts.items(), key=lambda x: x[1], reverse=True)[:5]
 
         return {
             "department": department,
@@ -913,9 +590,7 @@ def get_department_report(db: DatabaseConnection, department_id: str) -> Optiona
             "physician_count": len(physicians),
             "total_visits": len(visit_ids),
             "unique_patients": len(unique_patients),
-            "top_diagnoses": [
-                {"diagnosis": d, "count": c} for d, c in top_diagnoses
-            ],
+            "top_diagnoses": [{"diagnosis": d, "count": c} for d, c in top_diagnoses],
         }
     except PyMongoError as exc:
         raise RuntimeError(f"sp_department_report failed: {exc}") from exc
@@ -924,21 +599,14 @@ def get_department_report(db: DatabaseConnection, department_id: str) -> Optiona
 def process_referral_chain(db: DatabaseConnection, patient_id: str) -> Optional[dict]:
     """Stored Procedure 3: Trace the full referral history for a patient.
 
-    Collects every referral, resolves source and target physician names,
-    and builds a chain showing how the patient moved between specialists.
-
     SQL equivalent:
         CREATE PROCEDURE sp_referral_chain(IN p_id VARCHAR(20))
         BEGIN
-            SELECT r.*, sp.first_name || ' ' || sp.last_name AS source_name,
-                   sp.speciality AS source_spec,
-                   tp.first_name || ' ' || tp.last_name AS target_name,
-                   tp.speciality AS target_spec
+            SELECT r.*, sp.name AS source_name, tp.name AS target_name
             FROM referrals r
             JOIN physicians sp ON r.source_physician_id = sp.physician_id
             JOIN physicians tp ON r.target_physician_id = tp.physician_id
-            WHERE r.patient_id = p_id
-            ORDER BY r.referral_date ASC;
+            WHERE r.patient_id = p_id ORDER BY r.referral_date ASC;
         END;
 
     Args:
@@ -946,7 +614,7 @@ def process_referral_chain(db: DatabaseConnection, patient_id: str) -> Optional[
         patient_id: The PAT-YYYY-NNN identifier.
 
     Returns:
-        Dict with patient info and ordered referral chain with physician details.
+        Dict with patient info and ordered referral chain.
     """
     try:
         patient = db.get_collection("patients").find_one(
@@ -985,63 +653,43 @@ def process_referral_chain(db: DatabaseConnection, patient_id: str) -> Optional[
                 "status": str(ref.get("status", "")).title(),
             })
 
-        return {
-            "patient": patient,
-            "total_referrals": len(chain),
-            "referral_chain": chain,
-        }
+        return {"patient": patient, "total_referrals": len(chain), "referral_chain": chain}
     except PyMongoError as exc:
         raise RuntimeError(f"sp_referral_chain failed: {exc}") from exc
 
 
 def _render_procedures_section(db: DatabaseConnection) -> None:
-    """Render Section 5: Stored Procedures with SQL equivalents and live execution.
+    """Render Section 5: Stored Procedures.
 
     Args:
         db: Active DatabaseConnection.
     """
-    st.subheader("5. Stored Procedures")
-    st.info(
-        "Stored procedures in SQL encapsulate multi-step read/write logic on the "
-        "server. In MongoDB + Python, we achieve the same pattern with dedicated "
-        "functions that perform multiple queries in a single call."
+    st.markdown(
+        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:16px;">'
+        "Stored procedures encapsulate multi-step logic into single callable units.</p>",
+        unsafe_allow_html=True,
     )
 
     procedures = [
-        {
-            "name": "sp_patient_summary",
-            "function": generate_patient_summary,
-            "description": "Generates a full patient report: demographics, visit count, appointment count, active alerts, and 5 most recent visits.",
-            "sql": inspect.getdoc(generate_patient_summary) or "",
-        },
-        {
-            "name": "sp_department_report",
-            "function": get_department_report,
-            "description": "Department analytics: physician roster, total visits, unique patients, and top 5 diagnoses.",
-            "sql": inspect.getdoc(get_department_report) or "",
-        },
-        {
-            "name": "sp_referral_chain",
-            "function": process_referral_chain,
-            "description": "Traces the full referral chain for a patient — shows how they moved between specialists over time.",
-            "sql": inspect.getdoc(process_referral_chain) or "",
-        },
+        {"name": "sp_patient_summary", "function": generate_patient_summary, "description": "Full patient report: demographics, visit count, appointment count, active alerts, recent visits."},
+        {"name": "sp_department_report", "function": get_department_report, "description": "Department analytics: physician roster, total visits, unique patients, top diagnoses."},
+        {"name": "sp_referral_chain", "function": process_referral_chain, "description": "Traces the full referral chain for a patient."},
     ]
 
     for proc in procedures:
         with st.expander(f"Procedure: {proc['name']}"):
             st.markdown(f"**Description:** {proc['description']}")
 
-            # Extract just the SQL block from the docstring
-            doc = proc["sql"]
-            sql_start = doc.find("CREATE PROCEDURE")
-            sql_end = doc.find("END;")
-            if sql_start >= 0 and sql_end >= 0:
-                st.markdown("**SQL Equivalent:**")
-                st.code(doc[sql_start : sql_end + 4], language="sql")
-
-            # Show Python source
-            with st.expander("View Python Implementation"):
+            left, right = st.columns(2)
+            with left:
+                doc = inspect.getdoc(proc["function"]) or ""
+                sql_start = doc.find("CREATE PROCEDURE")
+                sql_end = doc.find("END;")
+                if sql_start >= 0 and sql_end >= 0:
+                    st.markdown("**SQL Equivalent:**")
+                    st.code(doc[sql_start : sql_end + 4], language="sql")
+            with right:
+                st.markdown("**Python Implementation:**")
                 try:
                     st.code(inspect.getsource(proc["function"]), language="python")
                 except Exception:
@@ -1049,21 +697,16 @@ def _render_procedures_section(db: DatabaseConnection) -> None:
 
     st.divider()
 
-    # Live execution section
     st.markdown("**Live Execution**")
 
-    # Procedure 1 — Patient Summary
     with st.expander("Execute: sp_patient_summary"):
         sample_pid = _get_sample_patient_id(db)
-        pid_input = st.text_input(
-            "Patient ID", value=sample_pid, key="proc1_pid"
-        )
+        pid_input = st.text_input("Patient ID", value=sample_pid, key="proc1_pid")
         if st.button("Run sp_patient_summary", key="run_proc1"):
             try:
                 start = time.time()
                 result = generate_patient_summary(db, pid_input)
                 elapsed = time.time() - start
-
                 if result:
                     st.success(f"Executed in {elapsed:.3f}s")
                     col1, col2, col3, col4 = st.columns(4)
@@ -1071,20 +714,13 @@ def _render_procedures_section(db: DatabaseConnection) -> None:
                     col2.metric("Appointments", result["total_appointments"])
                     col3.metric("Referrals", result["total_referrals"])
                     col4.metric("Active Alerts", result["active_alerts"])
-
                     if result["recent_visits"]:
-                        st.markdown("**Recent Visits:**")
-                        st.dataframe(
-                            result["recent_visits"],
-                            use_container_width=True,
-                            hide_index=True,
-                        )
+                        st.dataframe(result["recent_visits"], use_container_width=True, hide_index=True)
                 else:
                     st.warning(f"Patient {pid_input} not found.")
             except Exception as exc:
                 st.error(f"Procedure error: {exc}")
 
-    # Procedure 2 — Department Report
     with st.expander("Execute: sp_department_report"):
         try:
             depts = list(
@@ -1092,46 +728,28 @@ def _render_procedures_section(db: DatabaseConnection) -> None:
                 .find({}, {"_id": 0, "department_id": 1, "department_name": 1})
                 .sort("department_name", 1)
             )
-            dept_options = {
-                d["department_name"]: d["department_id"] for d in depts
-            }
+            dept_options = {d["department_name"]: d["department_id"] for d in depts}
         except Exception:
             dept_options = {}
 
         if dept_options:
-            selected_dept = st.selectbox(
-                "Select Department",
-                options=list(dept_options.keys()),
-                key="proc2_dept",
-            )
+            selected_dept = st.selectbox("Select Department", options=list(dept_options.keys()), key="proc2_dept")
             if st.button("Run sp_department_report", key="run_proc2"):
                 try:
                     start = time.time()
                     result = get_department_report(db, dept_options[selected_dept])
                     elapsed = time.time() - start
-
                     if result:
                         st.success(f"Executed in {elapsed:.3f}s")
                         col1, col2, col3 = st.columns(3)
                         col1.metric("Physicians", result["physician_count"])
                         col2.metric("Total Visits", result["total_visits"])
                         col3.metric("Unique Patients", result["unique_patients"])
-
                         if result["top_diagnoses"]:
-                            st.markdown("**Top Diagnoses:**")
-                            st.dataframe(
-                                result["top_diagnoses"],
-                                use_container_width=True,
-                                hide_index=True,
-                            )
-
+                            st.dataframe(result["top_diagnoses"], use_container_width=True, hide_index=True)
                         if result["physicians"]:
-                            st.markdown("**Physician Roster:**")
                             roster = [
-                                {
-                                    "Name": f"Dr. {p.get('first_name', '')} {p.get('last_name', '')}",
-                                    "Speciality": p.get("speciality", ""),
-                                }
+                                {"Name": f"Dr. {p.get('first_name', '')} {p.get('last_name', '')}", "Speciality": p.get("speciality", "")}
                                 for p in result["physicians"]
                             ]
                             st.dataframe(roster, use_container_width=True, hide_index=True)
@@ -1142,30 +760,18 @@ def _render_procedures_section(db: DatabaseConnection) -> None:
         else:
             st.info("No departments found. Load seed data first.")
 
-    # Procedure 3 — Referral Chain
     with st.expander("Execute: sp_referral_chain"):
         sample_pid2 = _get_sample_patient_id(db)
-        pid_input2 = st.text_input(
-            "Patient ID", value=sample_pid2, key="proc3_pid"
-        )
+        pid_input2 = st.text_input("Patient ID", value=sample_pid2, key="proc3_pid")
         if st.button("Run sp_referral_chain", key="run_proc3"):
             try:
                 start = time.time()
                 result = process_referral_chain(db, pid_input2)
                 elapsed = time.time() - start
-
                 if result:
-                    st.success(
-                        f"Executed in {elapsed:.3f}s — "
-                        f"**{result['total_referrals']}** referrals found"
-                    )
-
+                    st.success(f"Executed in {elapsed:.3f}s — **{result['total_referrals']}** referrals")
                     if result["referral_chain"]:
-                        st.dataframe(
-                            result["referral_chain"],
-                            use_container_width=True,
-                            hide_index=True,
-                        )
+                        st.dataframe(result["referral_chain"], use_container_width=True, hide_index=True)
                     else:
                         st.info("No referrals found for this patient.")
                 else:
@@ -1179,44 +785,33 @@ def _render_procedures_section(db: DatabaseConnection) -> None:
 # ============================================================================
 
 def _render_audit_section(db: DatabaseConnection) -> None:
-    """Render Section 6: Live audit log viewer proving triggers work in real time.
+    """Render Section 6: Live audit log viewer.
 
     Args:
         db: Active DatabaseConnection.
     """
-    st.subheader("6. Audit Log Viewer")
-    st.info(
-        "Every CRUD operation fires the `audit_log_trigger`, which writes to the "
-        "`audit_logs` collection. This viewer shows the live audit trail — proof "
-        "that the trigger is working in real time."
+    st.markdown(
+        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:16px;">'
+        "Every CRUD operation fires the audit_log_trigger. This viewer shows the live audit trail.</p>",
+        unsafe_allow_html=True,
     )
 
-    # Filters
     col1, col2, col3 = st.columns(3)
-
     with col1:
         action_filter = st.selectbox(
             "Filter by Action",
             options=["All", "create", "read", "update", "delete"],
             key="audit_action_filter",
         )
-
     with col2:
         collection_filter = st.selectbox(
             "Filter by Collection",
-            options=[
-                "All", "patients", "visits", "appointments",
-                "referrals", "alerts",
-            ],
+            options=["All", "patients", "visits", "appointments", "referrals", "alerts"],
             key="audit_collection_filter",
         )
-
     with col3:
-        limit = st.number_input(
-            "Max rows", min_value=10, max_value=200, value=50, key="audit_limit"
-        )
+        limit = st.number_input("Max rows", min_value=10, max_value=200, value=50, key="audit_limit")
 
-    # Refresh button
     if st.button("Refresh Audit Log", key="refresh_audit", use_container_width=True):
         st.session_state.pop("audit_cache", None)
 
@@ -1240,7 +835,6 @@ def _render_audit_section(db: DatabaseConnection) -> None:
 
         st.caption(f"Showing {len(logs)} most recent entries")
 
-        # Format for display
         display_data = []
         for log in logs:
             ts = log.get("timestamp")
@@ -1252,9 +846,7 @@ def _render_audit_section(db: DatabaseConnection) -> None:
                 parts = []
                 for field, diff in changes.items():
                     if isinstance(diff, dict):
-                        parts.append(
-                            f"{field}: {diff.get('before', '?')} -> {diff.get('after', '?')}"
-                        )
+                        parts.append(f"{field}: {diff.get('before', '?')} -> {diff.get('after', '?')}")
                 changes_str = "; ".join(parts) if parts else ""
 
             display_data.append({
@@ -1264,7 +856,6 @@ def _render_audit_section(db: DatabaseConnection) -> None:
                 "Document ID": log.get("document_id", ""),
                 "Patient ID": log.get("patient_id", ""),
                 "Performed By": log.get("performed_by", ""),
-                "Role": log.get("performed_by_role", ""),
                 "Changes": changes_str,
             })
 
@@ -1274,12 +865,9 @@ def _render_audit_section(db: DatabaseConnection) -> None:
         total_logs = db.get_collection("audit_logs").count_documents({})
         action_counts: dict[str, int] = {}
         for action_val in ["create", "read", "update", "delete"]:
-            action_counts[action_val] = db.get_collection("audit_logs").count_documents(
-                {"action": action_val}
-            )
+            action_counts[action_val] = db.get_collection("audit_logs").count_documents({"action": action_val})
 
         st.divider()
-        st.markdown("**Audit Log Summary**")
         summary_cols = st.columns(5)
         summary_cols[0].metric("Total Entries", total_logs)
         summary_cols[1].metric("CREATE", action_counts.get("create", 0))
@@ -1300,26 +888,24 @@ def _render_audit_section(db: DatabaseConnection) -> None:
 def render(db: DatabaseConnection) -> None:
     """Render the full DBMS Concepts demonstration page.
 
-    This is the page the professor evaluates directly during the viva.
-    Six clearly labeled sections cover every core DBMS concept.
-
     Args:
         db: Active DatabaseConnection.
     """
-    st.header("DBMS Concepts — Module 1 Patient Demographics")
-    st.success(
-        "This page demonstrates all core DBMS concepts implemented in this module: "
-        "**Normalization**, **Indexes**, **Constraints**, **Views** (aggregation pipelines), "
-        "**Triggers**, **Stored Procedures**, and **Audit Logging**."
+    st.markdown(
+        '<h2 style="margin-bottom:4px;">DBMS Concepts</h2>'
+        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:20px;">'
+        "Normalization, Indexes, Constraints, Views (aggregation pipelines), "
+        "Triggers, Stored Procedures, and Audit Logging.</p>",
+        unsafe_allow_html=True,
     )
 
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "Schema & Normalization",
-        "Indexes & Constraints",
-        "Live Query Execution",
-        "Trigger Demos",
-        "Stored Procedures",
-        "Audit Log Viewer",
+        "📐 Schema",
+        "🔑 Indexes",
+        "⚡ Queries",
+        "🔔 Triggers",
+        "📦 Procedures",
+        "📜 Audit Log",
     ])
 
     with tab1:

@@ -1,14 +1,19 @@
 """Main Streamlit entry point for Module 1 — Patient Demographics & Visit History.
 
-Connects to MongoDB Atlas on startup, renders the sidebar for navigation,
-and routes to the appropriate page based on user selection.
+Connects to MongoDB Atlas on startup, injects the dark clinical theme,
+renders the sidebar for navigation, and routes to the appropriate page.
+The home dashboard features live metrics, Plotly charts, activity feed,
+and auto-refresh every 30 seconds.
 """
 
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 from dotenv import load_dotenv
 from pymongo.errors import PyMongoError
@@ -27,26 +32,45 @@ from frontend.pages import (
     appointments,
     referrals,
     dbms_demo,
+    api_explorer,
+)
+from frontend.styles import (
+    inject_css,
+    PLOTLY_LAYOUT,
+    PLOTLY_CONFIG,
+    CHART_COLORS,
+    SUCCESS,
+    WARNING,
+    DANGER,
+    PRIMARY,
+    TEXT,
+    TEXT_MUTED,
+    NAVY_CARD,
 )
 
 load_dotenv()
 
 
-def _get_dashboard_stats(db: DatabaseConnection) -> dict[str, int]:
-    """Fetch the dashboard metric values.
+# ── Cached data fetchers (TTL 30s) ─────────────────────────────────────────
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _get_dashboard_stats(_db_id: int, db: DatabaseConnection) -> dict[str, Any]:
+    """Fetch all dashboard metrics in one pass.
 
     Args:
+        _db_id: Hash key for caching (id of db object).
         db: Active DatabaseConnection.
 
     Returns:
-        Dict with total_patients, total_visits, active_alerts,
-        upcoming_appointments.
+        Dict with metric values and deltas.
     """
-    stats: dict[str, int] = {
+    stats: dict[str, Any] = {
         "total_patients": 0,
         "total_visits": 0,
         "active_alerts": 0,
-        "upcoming_appointments": 0,
+        "total_referrals": 0,
+        "pending_referrals": 0,
+        "patients_this_week": 0,
     }
 
     try:
@@ -69,13 +93,21 @@ def _get_dashboard_stats(db: DatabaseConnection) -> dict[str, int]:
         pass
 
     try:
-        stats["upcoming_appointments"] = db.get_collection(
-            "appointments"
-        ).count_documents(
-            {
-                "status": {"$in": ["scheduled", "confirmed"]},
-                "appointment_date_and_time": {"$gte": datetime.utcnow()},
-            }
+        stats["total_referrals"] = db.get_collection("referrals").count_documents({})
+    except PyMongoError:
+        pass
+
+    try:
+        stats["pending_referrals"] = db.get_collection("referrals").count_documents(
+            {"status": "pending"}
+        )
+    except PyMongoError:
+        pass
+
+    try:
+        week_ago = datetime.utcnow() - timedelta(days=7)
+        stats["patients_this_week"] = db.get_collection("patients").count_documents(
+            {"created_at": {"$gte": week_ago}}
         )
     except PyMongoError:
         pass
@@ -83,14 +115,78 @@ def _get_dashboard_stats(db: DatabaseConnection) -> dict[str, int]:
     return stats
 
 
-def _render_recent_patients(db: DatabaseConnection) -> None:
-    """Display a table of the 5 most recently registered patients.
+@st.cache_data(ttl=30, show_spinner=False)
+def _get_visits_by_month(_db_id: int, db: DatabaseConnection) -> list[dict]:
+    """Aggregate visit counts grouped by month for the bar chart.
 
     Args:
+        _db_id: Cache key.
         db: Active DatabaseConnection.
+
+    Returns:
+        List of dicts with year, month, count.
     """
     try:
-        patients = list(
+        pipeline = [
+            {
+                "$addFields": {
+                    "year": {"$year": "$visit_date"},
+                    "month": {"$month": "$visit_date"},
+                }
+            },
+            {"$group": {"_id": {"year": "$year", "month": "$month"}, "count": {"$sum": 1}}},
+            {"$sort": {"_id.year": 1, "_id.month": 1}},
+            {"$limit": 12},
+        ]
+        results = list(db.get_collection("visits").aggregate(pipeline))
+        return [
+            {
+                "month": f"{r['_id']['year']}-{r['_id']['month']:02d}",
+                "count": r["count"],
+            }
+            for r in results
+        ]
+    except PyMongoError:
+        return []
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _get_diagnosis_distribution(_db_id: int, db: DatabaseConnection) -> list[dict]:
+    """Aggregate top diagnoses for the donut chart.
+
+    Args:
+        _db_id: Cache key.
+        db: Active DatabaseConnection.
+
+    Returns:
+        List of dicts with diagnosis name and count.
+    """
+    try:
+        pipeline = [
+            {"$match": {"diagnosis": {"$ne": None, "$ne": ""}}},
+            {"$group": {"_id": "$diagnosis", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+            {"$limit": 8},
+        ]
+        results = list(db.get_collection("visits").aggregate(pipeline))
+        return [{"diagnosis": r["_id"], "count": r["count"]} for r in results]
+    except PyMongoError:
+        return []
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _get_recent_patients(_db_id: int, db: DatabaseConnection) -> list[dict]:
+    """Fetch 8 most recently registered patients.
+
+    Args:
+        _db_id: Cache key.
+        db: Active DatabaseConnection.
+
+    Returns:
+        List of patient dicts.
+    """
+    try:
+        return list(
             db.get_collection("patients")
             .find(
                 {},
@@ -106,260 +202,326 @@ def _render_recent_patients(db: DatabaseConnection) -> None:
                 },
             )
             .sort("created_at", -1)
-            .limit(5)
+            .limit(8)
+        )
+    except PyMongoError:
+        return []
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _get_recent_activity(_db_id: int, db: DatabaseConnection) -> list[dict]:
+    """Fetch the 10 most recent audit log entries for the activity feed.
+
+    Args:
+        _db_id: Cache key.
+        db: Active DatabaseConnection.
+
+    Returns:
+        List of audit log dicts.
+    """
+    try:
+        return list(
+            db.get_collection("audit_logs")
+            .find({}, {"_id": 0})
+            .sort("timestamp", -1)
+            .limit(10)
+        )
+    except PyMongoError:
+        return []
+
+
+# ── Dashboard rendering ─────────────────────────────────────────────────────
+
+def _render_metric_cards(stats: dict[str, Any]) -> None:
+    """Render the 4 hero metric cards with trend badges.
+
+    Args:
+        stats: Dashboard statistics dict.
+    """
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        week_badge = f"+{stats['patients_this_week']}" if stats["patients_this_week"] > 0 else "0"
+        st.metric(
+            "Total Patients",
+            stats["total_patients"],
+            delta=f"{week_badge} this week",
         )
 
-        if not patients:
-            st.info("No patients registered yet. Use the Register Patient page to add one.")
-            return
+    with c2:
+        st.metric("Total Visits", stats["total_visits"])
 
-        display: list[dict[str, Any]] = []
-        for p in patients:
-            created = p.get("created_at")
-            date_str = (
-                created.strftime("%d %b %Y")
-                if hasattr(created, "strftime")
-                else str(created)
+    with c3:
+        alert_count = stats["active_alerts"]
+        if alert_count > 0:
+            st.markdown(
+                f"""<div style="position:relative;">
+                    <span style="position:absolute; top:8px; right:12px;
+                        width:8px; height:8px; border-radius:50%; background:#EF4444;
+                        animation: pulse 1.5s ease-in-out infinite;
+                        box-shadow: 0 0 10px rgba(239,68,68,0.8);"></span>
+                </div>
+                <style>
+                @keyframes pulse {{
+                    0%, 100% {{ opacity:1; box-shadow: 0 0 10px rgba(239,68,68,0.8); }}
+                    50% {{ opacity:0.4; box-shadow: 0 0 4px rgba(239,68,68,0.3); }}
+                }}
+                </style>""",
+                unsafe_allow_html=True,
             )
-            display.append({
-                "Patient ID": p.get("patient_id", ""),
-                "Name": f"{p.get('first_name', '')} {p.get('last_name', '')}",
-                "Age": p.get("age", "N/A"),
-                "Gender": str(p.get("gender", "")).title(),
-                "Phone": p.get("phone", ""),
-                "Registered": date_str,
-            })
+        st.metric("Active Alerts", alert_count)
 
-        st.dataframe(display, use_container_width=True, hide_index=True)
-    except PyMongoError as exc:
-        st.error(f"Could not load recent patients: {exc}")
+    with c4:
+        pending = stats["pending_referrals"]
+        st.metric(
+            "Total Referrals",
+            stats["total_referrals"],
+            delta=f"{pending} pending" if pending > 0 else None,
+        )
 
 
-def _render_recent_visits(db: DatabaseConnection) -> None:
-    """Display a table of the 5 most recent clinical visits.
+def _render_charts(db: DatabaseConnection) -> None:
+    """Render the two side-by-side Plotly charts.
 
     Args:
         db: Active DatabaseConnection.
     """
-    try:
-        pipeline: list[dict[str, Any]] = [
-            {"$sort": {"visit_date": -1}},
-            {"$limit": 5},
-            {
-                "$lookup": {
-                    "from": "patients",
-                    "localField": "patient_id",
-                    "foreignField": "patient_id",
-                    "as": "patient",
-                }
-            },
-            {"$unwind": {"path": "$patient", "preserveNullAndEmptyArrays": True}},
-            {
-                "$lookup": {
-                    "from": "physicians",
-                    "localField": "physician_id",
-                    "foreignField": "physician_id",
-                    "as": "physician",
-                }
-            },
-            {"$unwind": {"path": "$physician", "preserveNullAndEmptyArrays": True}},
-            {
-                "$project": {
-                    "_id": 0,
-                    "visit_id": 1,
-                    "patient_name": {
-                        "$concat": ["$patient.first_name", " ", "$patient.last_name"]
-                    },
-                    "patient_id": 1,
-                    "physician_name": {
-                        "$concat": [
-                            "Dr. ",
-                            "$physician.first_name",
-                            " ",
-                            "$physician.last_name",
-                        ]
-                    },
-                    "visit_date": 1,
-                    "reason": 1,
-                    "diagnosis": 1,
-                    "status": 1,
-                }
-            },
-        ]
-
-        visits = list(db.get_collection("visits").aggregate(pipeline))
-
-        if not visits:
-            st.info("No visits recorded yet.")
-            return
-
-        display: list[dict[str, Any]] = []
-        for v in visits:
-            vd = v.get("visit_date")
-            date_str = (
-                vd.strftime("%d %b %Y") if hasattr(vd, "strftime") else str(vd)
-            )
-            display.append({
-                "Visit ID": v.get("visit_id", ""),
-                "Patient": v.get("patient_name", "Unknown"),
-                "Physician": v.get("physician_name", "N/A"),
-                "Date": date_str,
-                "Reason": v.get("reason", ""),
-                "Diagnosis": v.get("diagnosis", "Pending"),
-                "Status": str(v.get("status", "")).title(),
-            })
-
-        st.dataframe(display, use_container_width=True, hide_index=True)
-    except PyMongoError as exc:
-        st.error(f"Could not load recent visits: {exc}")
-
-
-def _render_upcoming_appointments(db: DatabaseConnection) -> None:
-    """Display a table of the next 5 upcoming appointments.
-
-    Shows only scheduled/confirmed appointments in the future, sorted by
-    nearest first.  Uses aggregation to join patient and physician names.
-
-    Args:
-        db: Active DatabaseConnection.
-    """
-    try:
-        pipeline: list[dict[str, Any]] = [
-            {
-                "$match": {
-                    "status": {"$in": ["scheduled", "confirmed"]},
-                    "appointment_date_and_time": {"$gte": datetime.utcnow()},
-                }
-            },
-            {"$sort": {"appointment_date_and_time": 1}},
-            {"$limit": 5},
-            {
-                "$lookup": {
-                    "from": "patients",
-                    "localField": "patient_id",
-                    "foreignField": "patient_id",
-                    "as": "patient",
-                }
-            },
-            {"$unwind": {"path": "$patient", "preserveNullAndEmptyArrays": True}},
-            {
-                "$lookup": {
-                    "from": "physicians",
-                    "localField": "physician_id",
-                    "foreignField": "physician_id",
-                    "as": "physician",
-                }
-            },
-            {"$unwind": {"path": "$physician", "preserveNullAndEmptyArrays": True}},
-            {
-                "$project": {
-                    "_id": 0,
-                    "appointment_id": 1,
-                    "patient_name": {
-                        "$concat": [
-                            "$patient.first_name",
-                            " ",
-                            "$patient.last_name",
-                        ]
-                    },
-                    "physician_name": {
-                        "$concat": [
-                            "Dr. ",
-                            "$physician.first_name",
-                            " ",
-                            "$physician.last_name",
-                        ]
-                    },
-                    "speciality": "$physician.speciality",
-                    "appointment_date_and_time": 1,
-                    "reason": 1,
-                    "status": 1,
-                }
-            },
-        ]
-
-        appts = list(db.get_collection("appointments").aggregate(pipeline))
-
-        if not appts:
-            st.info("No upcoming appointments.")
-            return
-
-        display: list[dict[str, Any]] = []
-        for a in appts:
-            dt = a.get("appointment_date_and_time")
-            dt_str = (
-                dt.strftime("%d %b %Y, %I:%M %p")
-                if hasattr(dt, "strftime")
-                else str(dt)
-            )
-            display.append({
-                "ID": a.get("appointment_id", ""),
-                "Patient": a.get("patient_name", "Unknown"),
-                "Physician": a.get("physician_name", "N/A"),
-                "Speciality": a.get("speciality", ""),
-                "Date & Time": dt_str,
-                "Reason": a.get("reason", ""),
-                "Status": str(a.get("status", "")).title(),
-            })
-
-        st.dataframe(display, use_container_width=True, hide_index=True)
-    except PyMongoError as exc:
-        st.error(f"Could not load upcoming appointments: {exc}")
-
-
-def _render_home(db: DatabaseConnection) -> None:
-    """Render the Home dashboard page.
-
-    Shows 4 metric cards, upcoming appointments, recent patients,
-    recent visits, and active alerts.
-
-    Args:
-        db: Active DatabaseConnection.
-    """
-    st.header("Dashboard")
-
-    # Metric cards
-    with st.spinner("Loading dashboard metrics..."):
-        stats = _get_dashboard_stats(db)
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Patients", stats["total_patients"])
-    col2.metric("Total Visits", stats["total_visits"])
-    col3.metric("Upcoming Appointments", stats["upcoming_appointments"])
-    col4.metric("Active Alerts", stats["active_alerts"])
-
-    st.divider()
-
-    # Upcoming appointments — most actionable section for reception
-    st.subheader("Upcoming Appointments")
-    _render_upcoming_appointments(db)
-
-    st.divider()
-
-    # Recent patients and recent visits side by side
+    db_id = id(db)
     left, right = st.columns(2)
 
     with left:
-        st.subheader("Recent Patients")
-        _render_recent_patients(db)
+        st.markdown(
+            '<p style="font-size:0.8rem; font-weight:600; color:#94A3B8; '
+            'text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">'
+            "Visits by Month</p>",
+            unsafe_allow_html=True,
+        )
+        monthly = _get_visits_by_month(db_id, db)
+        if monthly:
+            df = pd.DataFrame(monthly)
+            fig = px.bar(
+                df, x="month", y="count",
+                color_discrete_sequence=[PRIMARY],
+            )
+            fig.update_layout(**PLOTLY_LAYOUT)
+            fig.update_layout(
+                xaxis_title="", yaxis_title="Visits",
+                height=320,
+                bargap=0.3,
+            )
+            fig.update_traces(marker_line_width=0, marker_cornerradius=4)
+            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+        else:
+            st.info("No visit data available for chart.")
 
     with right:
-        st.subheader("Recent Visits")
-        _render_recent_visits(db)
+        st.markdown(
+            '<p style="font-size:0.8rem; font-weight:600; color:#94A3B8; '
+            'text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">'
+            "Diagnosis Distribution</p>",
+            unsafe_allow_html=True,
+        )
+        diagnoses = _get_diagnosis_distribution(db_id, db)
+        if diagnoses:
+            df = pd.DataFrame(diagnoses)
+            fig = px.pie(
+                df, names="diagnosis", values="count",
+                hole=0.55,
+                color_discrete_sequence=CHART_COLORS,
+            )
+            fig.update_layout(**PLOTLY_LAYOUT)
+            fig.update_layout(height=320, showlegend=True)
+            fig.update_traces(
+                textposition="inside",
+                textinfo="percent",
+                textfont_size=11,
+                marker=dict(line=dict(color="#0A0F1E", width=2)),
+            )
+            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+        else:
+            st.info("No diagnosis data available for chart.")
+
+
+def _render_recent_patients(db: DatabaseConnection) -> None:
+    """Display recent patients with avatar initials color-coded by gender.
+
+    Args:
+        db: Active DatabaseConnection.
+    """
+    st.markdown(
+        '<p style="font-size:0.8rem; font-weight:600; color:#94A3B8; '
+        'text-transform:uppercase; letter-spacing:0.05em; margin-bottom:12px;">'
+        "Recent Patients</p>",
+        unsafe_allow_html=True,
+    )
+
+    patients = _get_recent_patients(id(db), db)
+    if not patients:
+        st.info("No patients registered yet.")
+        return
+
+    for p in patients:
+        first = p.get("first_name", "?")
+        last = p.get("last_name", "?")
+        initials = f"{first[0]}{last[0]}".upper()
+        gender = str(p.get("gender", "")).lower()
+
+        # Color by gender
+        if gender == "male":
+            avatar_bg = PRIMARY
+        elif gender == "female":
+            avatar_bg = "#EC4899"
+        else:
+            avatar_bg = "#8B5CF6"
+
+        created = p.get("created_at")
+        date_str = created.strftime("%d %b %Y") if hasattr(created, "strftime") else ""
+
+        st.markdown(
+            f"""<div style="display:flex; align-items:center; gap:12px; padding:8px 12px;
+                    border-radius:8px; margin-bottom:4px;
+                    background:rgba(30,41,59,0.3); transition:background 0.2s;">
+                <div style="width:36px; height:36px; border-radius:50%;
+                    background:{avatar_bg}; display:flex; align-items:center;
+                    justify-content:center; font-size:0.75rem; font-weight:700;
+                    color:white; flex-shrink:0;">{initials}</div>
+                <div style="flex:1; min-width:0;">
+                    <div style="font-weight:600; font-size:0.85rem; color:#F8FAFC;">
+                        {first} {last}</div>
+                    <div style="font-size:0.7rem; color:#94A3B8;">
+                        {p.get('patient_id', '')} &middot; Age {p.get('age', 'N/A')}
+                        &middot; {date_str}</div>
+                </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+
+def _render_activity_feed(db: DatabaseConnection) -> None:
+    """Display the last 10 audit log entries as a real-time activity feed.
+
+    Args:
+        db: Active DatabaseConnection.
+    """
+    st.markdown(
+        '<p style="font-size:0.8rem; font-weight:600; color:#94A3B8; '
+        'text-transform:uppercase; letter-spacing:0.05em; margin-bottom:12px;">'
+        "Activity Feed</p>",
+        unsafe_allow_html=True,
+    )
+
+    logs = _get_recent_activity(id(db), db)
+    if not logs:
+        st.info("No activity recorded yet.")
+        return
+
+    action_colors = {
+        "create": SUCCESS,
+        "read": PRIMARY,
+        "update": WARNING,
+        "delete": DANGER,
+    }
+
+    for log in logs:
+        action = str(log.get("action", "")).lower()
+        color = action_colors.get(action, TEXT_MUTED)
+        ts = log.get("timestamp")
+        ts_str = ts.strftime("%H:%M:%S") if hasattr(ts, "strftime") else ""
+        collection = log.get("collection_name", "")
+        performed_by = log.get("performed_by", "system")
+        doc_id = log.get("document_id", "")
+
+        st.markdown(
+            f"""<div style="display:flex; align-items:flex-start; gap:10px;
+                    padding:6px 10px; border-left:2px solid {color};
+                    margin-bottom:4px; border-radius:0 4px 4px 0;
+                    background:rgba(30,41,59,0.2);">
+                <span style="font-size:0.65rem; color:#64748B; font-family:monospace;
+                    white-space:nowrap; padding-top:2px;">{ts_str}</span>
+                <div style="flex:1; min-width:0;">
+                    <span style="font-size:0.75rem; font-weight:600; color:{color};
+                        text-transform:uppercase;">{action}</span>
+                    <span style="font-size:0.75rem; color:#94A3B8;">
+                        &nbsp;{collection}</span>
+                    <div style="font-size:0.65rem; color:#64748B; margin-top:1px;">
+                        {doc_id} &middot; {performed_by}</div>
+                </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+
+def _render_home(db: DatabaseConnection) -> None:
+    """Render the Home dashboard page with metrics, charts, and feeds.
+
+    Args:
+        db: Active DatabaseConnection.
+    """
+    # Top navbar
+    nav_l, nav_c, nav_r = st.columns([2, 2, 1])
+    with nav_l:
+        st.markdown(
+            '<h2 style="margin:0; font-size:1.4rem;">Dashboard</h2>',
+            unsafe_allow_html=True,
+        )
+    with nav_c:
+        pass  # Connection indicator is in sidebar
+    with nav_r:
+        now = datetime.now().strftime("%d %b %Y, %I:%M %p")
+        st.markdown(
+            f'<p style="text-align:right; color:#94A3B8; font-size:0.8rem; '
+            f'margin:8px 0 0 0;">{now}</p>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    # Metric cards
+    with st.spinner("Loading metrics..."):
+        stats = _get_dashboard_stats(id(db), db)
+    _render_metric_cards(stats)
+
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+    # Charts
+    _render_charts(db)
+
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+    # Bottom section: recent patients + activity feed
+    left, right = st.columns([3, 2])
+    with left:
+        _render_recent_patients(db)
+    with right:
+        _render_activity_feed(db)
+
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
     # Active alerts section
-    st.divider()
     alerts_component.render(db)
+
+    # Auto-refresh every 30 seconds
+    st.markdown(
+        """<script>
+        setTimeout(function() {
+            window.parent.postMessage({type: 'streamlit:rerun'}, '*');
+        }, 30000);
+        </script>""",
+        unsafe_allow_html=True,
+    )
 
 
 def main() -> None:
     """Application entry point — configure page, connect to DB, and route pages."""
     st.set_page_config(
-        page_title="Module 1 — Patient Demographics & Visit History",
+        page_title="Patient Demographics — Clinical Dashboard",
         page_icon="🏥",
         layout="wide",
         initial_sidebar_state="expanded",
     )
+
+    # Inject dark clinical theme
+    inject_css()
 
     # Connect to MongoDB Atlas on startup — cache in session state
     if "db" not in st.session_state:
@@ -396,6 +558,7 @@ def main() -> None:
         "visit_history": visit_history.render,
         "appointments": appointments.render,
         "referrals": referrals.render,
+        "api_explorer": api_explorer.render,
         "dbms_demo": dbms_demo.render,
     }
 
@@ -408,9 +571,12 @@ def main() -> None:
 
     # Footer
     st.divider()
-    st.caption(
-        "Module 1 — Patient Demographics & Visit History | "
-        "IIT(ISM) Dhanbad | DBMS Project 2025"
+    st.markdown(
+        '<p style="text-align:center; font-size:0.7rem; color:#475569; '
+        'letter-spacing:0.05em;">'
+        "Module 1 — Patient Demographics & Visit History &middot; "
+        "IIT(ISM) Dhanbad &middot; DBMS Project 2025</p>",
+        unsafe_allow_html=True,
     )
 
 

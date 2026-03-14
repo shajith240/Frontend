@@ -1,8 +1,7 @@
-"""Alerts component — displays unacknowledged clinical alerts with severity colors.
+"""Alerts component — dark-themed severity cards with acknowledge buttons.
 
-Fetches alerts from the alerts collection, color-codes them by severity
-(red=critical, orange=high, yellow=medium), provides per-alert acknowledge
-buttons, and supports filtering by alert type.
+Fetches unacknowledged alerts, color-codes them by severity, provides
+type filtering and per-alert acknowledgement.
 """
 
 import sys
@@ -23,12 +22,12 @@ from backend.models import AlertSeverity, AlertType
 
 load_dotenv()
 
-# Severity to Streamlit color mapping
+# Severity to color mapping
 _SEVERITY_COLORS: dict[str, str] = {
-    AlertSeverity.CRITICAL: "red",
-    AlertSeverity.HIGH: "orange",
-    AlertSeverity.MEDIUM: "yellow",
-    AlertSeverity.LOW: "blue",
+    AlertSeverity.CRITICAL: "#EF4444",
+    AlertSeverity.HIGH: "#F59E0B",
+    AlertSeverity.MEDIUM: "#2563EB",
+    AlertSeverity.LOW: "#64748B",
 }
 
 
@@ -66,7 +65,6 @@ def _fetch_alerts(
         if alert_type != "All":
             query["alert_type"] = alert_type.lower()
 
-        # Sort by severity priority (critical > high > medium > low) then newest first
         severity_order = {
             "critical": 0,
             "high": 1,
@@ -81,7 +79,6 @@ def _fetch_alerts(
             .limit(100)
         )
 
-        # Re-sort by severity priority in Python since MongoDB can't sort by custom order
         alerts.sort(
             key=lambda a: severity_order.get(a.get("severity", "low"), 4)
         )
@@ -119,25 +116,32 @@ def _acknowledge_alert(db: DatabaseConnection, alert_id: str) -> bool:
 
 
 def render(db: DatabaseConnection) -> None:
-    """Render the alerts panel with severity coloring and acknowledge buttons.
-
-    Fetches unacknowledged alerts, displays them color-coded by severity,
-    and provides type filtering and per-alert acknowledgement.  When there
-    are no active alerts the filter is hidden to avoid clutter.
+    """Render the alerts panel with severity-colored cards.
 
     Args:
         db: Active DatabaseConnection.
     """
-    # Quick count first so we can decide whether to show the filter
     total_active = _count_active_alerts(db)
 
-    st.subheader(f"Active Alerts ({total_active})")
+    st.markdown(
+        f'<p style="font-size:0.8rem; font-weight:600; color:#94A3B8; '
+        f'text-transform:uppercase; letter-spacing:0.05em; margin-bottom:12px;">'
+        f"Active Alerts ({total_active})</p>",
+        unsafe_allow_html=True,
+    )
 
     if total_active == 0:
-        st.success("No active alerts. All clear!")
+        st.markdown(
+            """<div style="background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.2);
+                    border-radius:10px; padding:16px; text-align:center;">
+                <span style="color:#10B981; font-size:0.85rem; font-weight:600;">
+                    ✓ No active alerts. All clear.</span>
+            </div>""",
+            unsafe_allow_html=True,
+        )
         return
 
-    # Show the type filter only when there are alerts to filter
+    # Type filter
     type_options = ["All"] + [t.value.replace("_", " ").title() for t in AlertType]
     selected_type = st.selectbox(
         "Filter by Type",
@@ -145,11 +149,10 @@ def render(db: DatabaseConnection) -> None:
         key="alert_type_filter",
     )
 
-    # Map display name back to enum value for query
+    # Map display name back to enum value
     filter_value = "All"
     if selected_type != "All":
         filter_value = selected_type.lower().replace(" ", "_")
-        # Verify it matches an AlertType value
         try:
             AlertType(filter_value)
         except ValueError:
@@ -168,7 +171,7 @@ def render(db: DatabaseConnection) -> None:
 
     for idx, alert in enumerate(alerts):
         severity = alert.get("severity", "low")
-        color = _SEVERITY_COLORS.get(severity, "gray")
+        color = _SEVERITY_COLORS.get(severity, "#64748B")
         alert_id = alert.get("alert_id", f"unknown-{idx}")
 
         created_at = alert.get("created_at")
@@ -178,14 +181,19 @@ def render(db: DatabaseConnection) -> None:
             else str(created_at)
         )
 
-        # Color-coded alert container
         with st.container(border=True):
             header_col, action_col = st.columns([5, 1])
 
             with header_col:
                 st.markdown(
-                    f":{color}[**[{severity.upper()}]** "
-                    f"{alert.get('title', 'Alert')}]"
+                    f"""<div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:0.65rem; font-weight:700; color:{color};
+                            text-transform:uppercase; background:{color}20;
+                            padding:2px 8px; border-radius:4px;">{severity}</span>
+                        <span style="font-weight:600; font-size:0.85rem;">
+                            {alert.get('title', 'Alert')}</span>
+                    </div>""",
+                    unsafe_allow_html=True,
                 )
                 st.write(alert.get("message", "No details available."))
                 st.caption(

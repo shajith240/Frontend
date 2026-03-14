@@ -1,11 +1,11 @@
-"""Appointments page — schedule new appointments and view existing ones.
+"""Appointments page — physician cards, booking form, and status-badged list.
 
-Two sections:
-  1. Schedule New Appointment — with patient/physician selectors and conflict check
-  2. View Existing Appointments — filterable by status with patient and physician names
-
-The appointment_conflict_trigger fires automatically through create_appointment
-in crud.py to prevent double-booking physicians.
+Features:
+- Physician cards with speciality, available slots placeholder
+- Department filter outside form for reactive physician filtering
+- Status badges: scheduled=blue, completed=green, cancelled=gray
+- Today's appointments highlighted
+- Conflict detection via appointment_conflict_trigger
 """
 
 import sys
@@ -134,25 +134,59 @@ def _fetch_physicians(
         return []
 
 
+def _render_physician_cards(physicians: list[dict]) -> None:
+    """Render physician cards in a grid layout.
+
+    Args:
+        physicians: List of physician dicts.
+    """
+    if not physicians:
+        return
+
+    cols = st.columns(min(len(physicians), 3))
+    for i, phy in enumerate(physicians):
+        with cols[i % 3]:
+            name = f"Dr. {phy.get('first_name', '')} {phy.get('last_name', '')}"
+            spec = phy.get("speciality", "General")
+            initials = f"{phy.get('first_name', '?')[0]}{phy.get('last_name', '?')[0]}".upper()
+
+            st.markdown(
+                f"""<div style="background:rgba(30,41,59,0.5); border:1px solid #334155;
+                        border-radius:12px; padding:16px; text-align:center;
+                        margin-bottom:8px; transition:border-color 0.2s;">
+                    <div style="width:48px; height:48px; border-radius:50%;
+                        background:#2563EB; display:flex; align-items:center;
+                        justify-content:center; font-size:0.9rem; font-weight:700;
+                        color:white; margin:0 auto 8px auto;">{initials}</div>
+                    <p style="font-weight:600; font-size:0.85rem; margin:0;">{name}</p>
+                    <p style="color:#94A3B8; font-size:0.75rem; margin:2px 0 0 0;">{spec}</p>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+
 def _render_schedule_form(db: DatabaseConnection) -> None:
     """Render the appointment scheduling form.
 
     Department filter lives OUTSIDE the form so it triggers a page rerun
-    immediately, updating the physician dropdown in real time. The form
-    itself only wraps the fields that need to be submitted together.
+    immediately, updating the physician dropdown in real time.
 
     Args:
         db: Active DatabaseConnection.
     """
-    st.subheader("Schedule New Appointment")
-
-    # Success state — show confirmation and offer to schedule another
+    # Success state
     if st.session_state.get("appt_success_id"):
-        st.success(
-            f"Appointment scheduled successfully! Appointment ID: "
-            f"**{st.session_state['appt_success_id']}**"
+        st.markdown(
+            f"""<div style="background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3);
+                    border-radius:12px; padding:24px; text-align:center; margin-bottom:16px;">
+                <span style="font-size:2rem;">✅</span>
+                <h3 style="margin:8px 0 4px 0; color:#10B981;">Appointment Scheduled</h3>
+                <p style="font-family:monospace; font-size:1rem; font-weight:700;">
+                    {st.session_state['appt_success_id']}</p>
+            </div>""",
+            unsafe_allow_html=True,
         )
-        if st.button("Schedule Another Appointment", type="primary"):
+        if st.button("Schedule Another", type="primary"):
             st.session_state.pop("appt_success_id", None)
             st.rerun()
         return
@@ -165,7 +199,7 @@ def _render_schedule_form(db: DatabaseConnection) -> None:
         st.warning("No active patients found. Register a patient first.")
         return
 
-    # ---- Department filter OUTSIDE the form so it is reactive ----
+    # Department filter OUTSIDE the form for reactivity
     dept_options: dict[str, str] = {"All Departments": ""}
     dept_options.update(
         {d["department_name"]: d["department_id"] for d in departments}
@@ -174,20 +208,22 @@ def _render_schedule_form(db: DatabaseConnection) -> None:
         "Filter Physicians by Department",
         options=list(dept_options.keys()),
         key="appt_dept_filter",
-        help="Narrow the physician list below. Changing this updates instantly.",
+        help="Changing this updates the physician list instantly.",
     )
 
     dept_id = dept_options.get(selected_dept, "")
     physicians = _fetch_physicians(db, dept_id)
 
     if not physicians:
-        st.warning(
-            "No physicians found in the selected department. "
-            "Try 'All Departments'."
-        )
+        st.warning("No physicians found in the selected department.")
         return
 
-    # Build option maps used by both the form widgets and the submit handler
+    # Physician cards
+    _render_physician_cards(physicians[:6])
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    # Build option maps
     patient_options = {
         f"{p['first_name']} {p['last_name']} ({p['patient_id']})": p["patient_id"]
         for p in patients
@@ -199,34 +235,33 @@ def _render_schedule_form(db: DatabaseConnection) -> None:
         for p in physicians
     }
 
-    # ---- Form: patient, physician, date/time, reason, submit ----
+    # Booking form
     with st.form("schedule_appointment_form", clear_on_submit=False):
         col1, col2 = st.columns(2)
 
         with col1:
             selected_patient = st.selectbox(
-                "Select Patient *",
+                "👤 Select Patient *",
                 options=list(patient_options.keys()),
             )
 
-            # Date and time picker — default to tomorrow at 10:00 AM
             tomorrow = datetime.now() + timedelta(days=1)
             appt_date = st.date_input(
-                "Appointment Date *", value=tomorrow.date()
+                "📅 Appointment Date *", value=tomorrow.date()
             )
 
         with col2:
             selected_physician = st.selectbox(
-                "Select Physician *",
+                "🩺 Select Physician *",
                 options=list(physician_options.keys()),
             )
             appt_time = st.time_input(
-                "Appointment Time *",
+                "🕐 Appointment Time *",
                 value=tomorrow.replace(hour=10, minute=0).time(),
             )
 
         reason = st.text_area(
-            "Reason for Appointment *", placeholder="Routine checkup"
+            "📋 Reason for Appointment *", placeholder="Routine checkup"
         )
 
         submitted = st.form_submit_button(
@@ -277,16 +312,11 @@ def _render_schedule_form(db: DatabaseConnection) -> None:
 
 
 def _render_existing_appointments(db: DatabaseConnection) -> None:
-    """Display existing appointments in a filterable table.
-
-    Shows patient name, physician name, date/time, reason, and status.
-    Filterable by appointment status.
+    """Display existing appointments with status badges.
 
     Args:
         db: Active DatabaseConnection.
     """
-    st.subheader("Existing Appointments")
-
     status_filter = st.selectbox(
         "Filter by Status",
         options=["All"] + [s.value.title() for s in AppointmentStatus],
@@ -299,7 +329,6 @@ def _render_existing_appointments(db: DatabaseConnection) -> None:
             if status_filter != "All":
                 query["status"] = status_filter.lower()
 
-            # Use aggregation to join patient and physician names
             pipeline: list[dict[str, Any]] = []
             if query:
                 pipeline.append({"$match": query})
@@ -354,23 +383,56 @@ def _render_existing_appointments(db: DatabaseConnection) -> None:
             st.info("No appointments found matching the selected filter.")
             return
 
-        # Format for display
-        display_data = []
+        # Render as styled cards
+        today = datetime.now().date()
+        status_colors = {
+            "scheduled": "#2563EB",
+            "confirmed": "#2563EB",
+            "completed": "#10B981",
+            "cancelled": "#64748B",
+            "no_show": "#F59E0B",
+        }
+
         for appt in results:
             dt = appt.get("appointment_date_and_time")
             dt_str = dt.strftime("%d %b %Y, %I:%M %p") if hasattr(dt, "strftime") else str(dt)
+            is_today = hasattr(dt, "date") and dt.date() == today
+            status = str(appt.get("status", "")).lower()
+            color = status_colors.get(status, "#64748B")
 
-            display_data.append({
-                "ID": appt.get("appointment_id", ""),
-                "Patient": appt.get("patient_name", "Unknown"),
-                "Physician": appt.get("physician_name", "Not assigned"),
-                "Speciality": appt.get("speciality", ""),
-                "Date & Time": dt_str,
-                "Reason": appt.get("reason", ""),
-                "Status": str(appt.get("status", "")).title(),
-            })
+            today_badge = (
+                '<span style="font-size:0.6rem; background:#F59E0B; color:#0A0F1E; '
+                'padding:1px 6px; border-radius:3px; font-weight:700; margin-left:8px;">'
+                "TODAY</span>"
+                if is_today
+                else ""
+            )
 
-        st.dataframe(display_data, use_container_width=True, hide_index=True)
+            st.markdown(
+                f"""<div style="display:flex; align-items:center; gap:12px; padding:12px 16px;
+                        background:rgba(30,41,59,0.3); border:1px solid #334155;
+                        border-radius:10px; margin-bottom:6px;
+                        {'border-left:3px solid #F59E0B;' if is_today else ''}">
+                    <div style="flex:1;">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <span style="font-weight:600; font-size:0.85rem;">
+                                {appt.get('patient_name', 'Unknown')}</span>
+                            {today_badge}
+                        </div>
+                        <span style="font-size:0.75rem; color:#94A3B8;">
+                            {appt.get('physician_name', 'N/A')} &middot;
+                            {appt.get('speciality', '')} &middot; {dt_str}</span>
+                    </div>
+                    <div style="text-align:right;">
+                        <span style="font-size:0.7rem; font-weight:600; color:{color};
+                            text-transform:uppercase; background:{color}20;
+                            padding:2px 8px; border-radius:4px;">{status}</span>
+                        <div style="font-size:0.7rem; color:#64748B; margin-top:2px;">
+                            {appt.get('appointment_id', '')}</div>
+                    </div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
 
     except PyMongoError as exc:
         st.error(f"Database error loading appointments: {exc}")
@@ -384,9 +446,14 @@ def render(db: DatabaseConnection) -> None:
     Args:
         db: Active DatabaseConnection.
     """
-    st.header("Appointments")
+    st.markdown(
+        '<h2 style="margin-bottom:4px;">Appointments</h2>'
+        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:16px;">'
+        "Schedule new appointments and manage existing ones.</p>",
+        unsafe_allow_html=True,
+    )
 
-    tab1, tab2 = st.tabs(["Schedule New", "View Existing"])
+    tab1, tab2 = st.tabs(["📅 Schedule New", "📋 View Existing"])
 
     with tab1:
         _render_schedule_form(db)
