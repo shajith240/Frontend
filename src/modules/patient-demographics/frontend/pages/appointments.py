@@ -137,8 +137,9 @@ def _fetch_physicians(
 def _render_schedule_form(db: DatabaseConnection) -> None:
     """Render the appointment scheduling form.
 
-    Physician dropdown filters by the selected department. On submit, fires
-    appointment_conflict_trigger via create_appointment.
+    Department filter lives OUTSIDE the form so it triggers a page rerun
+    immediately, updating the physician dropdown in real time. The form
+    itself only wraps the fields that need to be submitted together.
 
     Args:
         db: Active DatabaseConnection.
@@ -164,56 +165,69 @@ def _render_schedule_form(db: DatabaseConnection) -> None:
         st.warning("No active patients found. Register a patient first.")
         return
 
+    # ---- Department filter OUTSIDE the form so it is reactive ----
+    dept_options: dict[str, str] = {"All Departments": ""}
+    dept_options.update(
+        {d["department_name"]: d["department_id"] for d in departments}
+    )
+    selected_dept = st.selectbox(
+        "Filter Physicians by Department",
+        options=list(dept_options.keys()),
+        key="appt_dept_filter",
+        help="Narrow the physician list below. Changing this updates instantly.",
+    )
+
+    dept_id = dept_options.get(selected_dept, "")
+    physicians = _fetch_physicians(db, dept_id)
+
+    if not physicians:
+        st.warning(
+            "No physicians found in the selected department. "
+            "Try 'All Departments'."
+        )
+        return
+
+    # Build option maps used by both the form widgets and the submit handler
+    patient_options = {
+        f"{p['first_name']} {p['last_name']} ({p['patient_id']})": p["patient_id"]
+        for p in patients
+    }
+    physician_options = {
+        f"Dr. {p['first_name']} {p['last_name']} — {p['speciality']}": p[
+            "physician_id"
+        ]
+        for p in physicians
+    }
+
+    # ---- Form: patient, physician, date/time, reason, submit ----
     with st.form("schedule_appointment_form", clear_on_submit=False):
         col1, col2 = st.columns(2)
 
         with col1:
-            patient_options = {
-                f"{p['first_name']} {p['last_name']} ({p['patient_id']})": p["patient_id"]
-                for p in patients
-            }
             selected_patient = st.selectbox(
                 "Select Patient *",
                 options=list(patient_options.keys()),
             )
 
-            # Department filter for physician dropdown
-            dept_options = {"All Departments": ""}
-            dept_options.update(
-                {d["department_name"]: d["department_id"] for d in departments}
-            )
-            selected_dept = st.selectbox(
-                "Filter by Department",
-                options=list(dept_options.keys()),
+            # Date and time picker — default to tomorrow at 10:00 AM
+            tomorrow = datetime.now() + timedelta(days=1)
+            appt_date = st.date_input(
+                "Appointment Date *", value=tomorrow.date()
             )
 
         with col2:
-            # Fetch physicians based on selected department
-            dept_id = dept_options.get(selected_dept, "")
-            physicians = _fetch_physicians(db, dept_id)
+            selected_physician = st.selectbox(
+                "Select Physician *",
+                options=list(physician_options.keys()),
+            )
+            appt_time = st.time_input(
+                "Appointment Time *",
+                value=tomorrow.replace(hour=10, minute=0).time(),
+            )
 
-            if physicians:
-                physician_options = {
-                    f"Dr. {p['first_name']} {p['last_name']} — {p['speciality']}": p[
-                        "physician_id"
-                    ]
-                    for p in physicians
-                }
-                selected_physician = st.selectbox(
-                    "Select Physician *",
-                    options=list(physician_options.keys()),
-                )
-            else:
-                st.info("No physicians available for this department.")
-                selected_physician = None
-                physician_options = {}
-
-            # Date and time picker — default to tomorrow at 10:00 AM
-            tomorrow = datetime.now() + timedelta(days=1)
-            appt_date = st.date_input("Appointment Date *", value=tomorrow.date())
-            appt_time = st.time_input("Appointment Time *", value=tomorrow.replace(hour=10, minute=0).time())
-
-        reason = st.text_area("Reason for Appointment *", placeholder="Routine checkup")
+        reason = st.text_area(
+            "Reason for Appointment *", placeholder="Routine checkup"
+        )
 
         submitted = st.form_submit_button(
             "Schedule Appointment", type="primary", use_container_width=True

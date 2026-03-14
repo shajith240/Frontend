@@ -5,6 +5,7 @@ and routes to the appropriate page based on user selection.
 """
 
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,19 +33,20 @@ load_dotenv()
 
 
 def _get_dashboard_stats(db: DatabaseConnection) -> dict[str, int]:
-    """Fetch the four dashboard metric values.
+    """Fetch the dashboard metric values.
 
     Args:
         db: Active DatabaseConnection.
 
     Returns:
-        Dict with total_patients, total_visits, active_alerts, total_referrals.
+        Dict with total_patients, total_visits, active_alerts,
+        upcoming_appointments.
     """
     stats: dict[str, int] = {
         "total_patients": 0,
         "total_visits": 0,
         "active_alerts": 0,
-        "total_referrals": 0,
+        "upcoming_appointments": 0,
     }
 
     try:
@@ -67,7 +69,14 @@ def _get_dashboard_stats(db: DatabaseConnection) -> dict[str, int]:
         pass
 
     try:
-        stats["total_referrals"] = db.get_collection("referrals").count_documents({})
+        stats["upcoming_appointments"] = db.get_collection(
+            "appointments"
+        ).count_documents(
+            {
+                "status": {"$in": ["scheduled", "confirmed"]},
+                "appointment_date_and_time": {"$gte": datetime.utcnow()},
+            }
+        )
     except PyMongoError:
         pass
 
@@ -205,10 +214,104 @@ def _render_recent_visits(db: DatabaseConnection) -> None:
         st.error(f"Could not load recent visits: {exc}")
 
 
+def _render_upcoming_appointments(db: DatabaseConnection) -> None:
+    """Display a table of the next 5 upcoming appointments.
+
+    Shows only scheduled/confirmed appointments in the future, sorted by
+    nearest first.  Uses aggregation to join patient and physician names.
+
+    Args:
+        db: Active DatabaseConnection.
+    """
+    try:
+        pipeline: list[dict[str, Any]] = [
+            {
+                "$match": {
+                    "status": {"$in": ["scheduled", "confirmed"]},
+                    "appointment_date_and_time": {"$gte": datetime.utcnow()},
+                }
+            },
+            {"$sort": {"appointment_date_and_time": 1}},
+            {"$limit": 5},
+            {
+                "$lookup": {
+                    "from": "patients",
+                    "localField": "patient_id",
+                    "foreignField": "patient_id",
+                    "as": "patient",
+                }
+            },
+            {"$unwind": {"path": "$patient", "preserveNullAndEmptyArrays": True}},
+            {
+                "$lookup": {
+                    "from": "physicians",
+                    "localField": "physician_id",
+                    "foreignField": "physician_id",
+                    "as": "physician",
+                }
+            },
+            {"$unwind": {"path": "$physician", "preserveNullAndEmptyArrays": True}},
+            {
+                "$project": {
+                    "_id": 0,
+                    "appointment_id": 1,
+                    "patient_name": {
+                        "$concat": [
+                            "$patient.first_name",
+                            " ",
+                            "$patient.last_name",
+                        ]
+                    },
+                    "physician_name": {
+                        "$concat": [
+                            "Dr. ",
+                            "$physician.first_name",
+                            " ",
+                            "$physician.last_name",
+                        ]
+                    },
+                    "speciality": "$physician.speciality",
+                    "appointment_date_and_time": 1,
+                    "reason": 1,
+                    "status": 1,
+                }
+            },
+        ]
+
+        appts = list(db.get_collection("appointments").aggregate(pipeline))
+
+        if not appts:
+            st.info("No upcoming appointments.")
+            return
+
+        display: list[dict[str, Any]] = []
+        for a in appts:
+            dt = a.get("appointment_date_and_time")
+            dt_str = (
+                dt.strftime("%d %b %Y, %I:%M %p")
+                if hasattr(dt, "strftime")
+                else str(dt)
+            )
+            display.append({
+                "ID": a.get("appointment_id", ""),
+                "Patient": a.get("patient_name", "Unknown"),
+                "Physician": a.get("physician_name", "N/A"),
+                "Speciality": a.get("speciality", ""),
+                "Date & Time": dt_str,
+                "Reason": a.get("reason", ""),
+                "Status": str(a.get("status", "")).title(),
+            })
+
+        st.dataframe(display, use_container_width=True, hide_index=True)
+    except PyMongoError as exc:
+        st.error(f"Could not load upcoming appointments: {exc}")
+
+
 def _render_home(db: DatabaseConnection) -> None:
     """Render the Home dashboard page.
 
-    Shows 4 metric cards, recent patients table, and recent visits table.
+    Shows 4 metric cards, upcoming appointments, recent patients,
+    recent visits, and active alerts.
 
     Args:
         db: Active DatabaseConnection.
@@ -222,20 +325,27 @@ def _render_home(db: DatabaseConnection) -> None:
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Patients", stats["total_patients"])
     col2.metric("Total Visits", stats["total_visits"])
-    col3.metric("Active Alerts", stats["active_alerts"])
-    col4.metric("Total Referrals", stats["total_referrals"])
+    col3.metric("Upcoming Appointments", stats["upcoming_appointments"])
+    col4.metric("Active Alerts", stats["active_alerts"])
 
     st.divider()
 
-    # Recent patients
-    st.subheader("Recent Patients")
-    _render_recent_patients(db)
+    # Upcoming appointments — most actionable section for reception
+    st.subheader("Upcoming Appointments")
+    _render_upcoming_appointments(db)
 
     st.divider()
 
-    # Recent visits
-    st.subheader("Recent Visits")
-    _render_recent_visits(db)
+    # Recent patients and recent visits side by side
+    left, right = st.columns(2)
+
+    with left:
+        st.subheader("Recent Patients")
+        _render_recent_patients(db)
+
+    with right:
+        st.subheader("Recent Visits")
+        _render_recent_visits(db)
 
     # Active alerts section
     st.divider()
@@ -267,9 +377,7 @@ def main() -> None:
     is_connected: bool = st.session_state.get("db_connected", False)
 
     # Connection status banner
-    if is_connected:
-        st.success("Connected to MongoDB Atlas")
-    else:
+    if not is_connected:
         error_msg = st.session_state.get("db_error", "Unknown connection error")
         st.error(
             f"Could not connect to MongoDB Atlas: {error_msg}\n\n"

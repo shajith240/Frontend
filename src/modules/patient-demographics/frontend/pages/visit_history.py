@@ -7,7 +7,7 @@ details in a single aggregation pass.
 
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -127,6 +127,120 @@ def _render_visit_timeline(visits: list[dict]) -> None:
                     st.write(f"**Department:** {', '.join(dept_names)}")
 
 
+def _render_appointments_tab(appointments: list[dict]) -> None:
+    """Display the patient's appointments in a table.
+
+    Args:
+        appointments: List of appointment dicts from the full profile aggregation.
+    """
+    st.metric("Total Appointments", len(appointments))
+
+    if not appointments:
+        st.info("No appointments found for this patient.")
+        return
+
+    display: list[dict[str, Any]] = []
+    for appt in appointments:
+        dt = appt.get("appointment_date_and_time")
+        dt_str = (
+            dt.strftime("%d %b %Y, %I:%M %p")
+            if hasattr(dt, "strftime")
+            else str(dt)
+        )
+
+        physician_name = "Not assigned"
+        physician = appt.get("physician")
+        if physician and isinstance(physician, dict):
+            physician_name = (
+                f"Dr. {physician.get('first_name', '')} "
+                f"{physician.get('last_name', '')}"
+            )
+        elif isinstance(physician, list) and physician:
+            p = physician[0]
+            physician_name = (
+                f"Dr. {p.get('first_name', '')} {p.get('last_name', '')}"
+            )
+
+        status = str(appt.get("status", "unknown")).upper()
+        status_colors = {
+            "SCHEDULED": "blue",
+            "CONFIRMED": "green",
+            "COMPLETED": "green",
+            "CANCELLED": "red",
+            "NO_SHOW": "orange",
+        }
+        color = status_colors.get(status, "gray")
+
+        display.append({
+            "ID": appt.get("appointment_id", ""),
+            "Date & Time": dt_str,
+            "Physician": physician_name,
+            "Reason": appt.get("reason", ""),
+            "Status": status.title(),
+        })
+
+    st.dataframe(display, use_container_width=True, hide_index=True)
+
+
+def _render_referrals_tab(referrals: list[dict]) -> None:
+    """Display the patient's referrals in a table.
+
+    Args:
+        referrals: List of referral dicts from the full profile aggregation.
+    """
+    st.metric("Total Referrals", len(referrals))
+
+    if not referrals:
+        st.info("No referrals found for this patient.")
+        return
+
+    display: list[dict[str, Any]] = []
+    for ref in referrals:
+        ref_date = ref.get("referral_date")
+        date_str = (
+            ref_date.strftime("%d %b %Y")
+            if hasattr(ref_date, "strftime")
+            else str(ref_date)
+        )
+
+        source_name = "N/A"
+        source = ref.get("source_physician")
+        if source and isinstance(source, dict):
+            source_name = (
+                f"Dr. {source.get('first_name', '')} "
+                f"{source.get('last_name', '')}"
+            )
+        elif isinstance(source, list) and source:
+            s = source[0]
+            source_name = (
+                f"Dr. {s.get('first_name', '')} {s.get('last_name', '')}"
+            )
+
+        target_name = "N/A"
+        target = ref.get("target_physician")
+        if target and isinstance(target, dict):
+            target_name = (
+                f"Dr. {target.get('first_name', '')} "
+                f"{target.get('last_name', '')}"
+            )
+        elif isinstance(target, list) and target:
+            t = target[0]
+            target_name = (
+                f"Dr. {t.get('first_name', '')} {t.get('last_name', '')}"
+            )
+
+        display.append({
+            "ID": ref.get("referral_id", ""),
+            "Date": date_str,
+            "From": source_name,
+            "To": target_name,
+            "Reason": ref.get("reason", ""),
+            "Status": str(ref.get("status", "")).title(),
+        })
+
+    st.dataframe(display, use_container_width=True, hide_index=True)
+
+
 def render(db: DatabaseConnection) -> None:
     """Render the visit history page with search and timeline display.
 
@@ -199,9 +313,25 @@ def render(db: DatabaseConnection) -> None:
 
         st.divider()
 
-        # Render visit timeline
+        # Tabbed view for visits, appointments, and referrals
         visits = profile.get("visits", [])
-        _render_visit_timeline(visits)
+        appointments = profile.get("appointments", [])
+        referrals = profile.get("referrals", [])
+
+        tab_visits, tab_appts, tab_refs = st.tabs([
+            f"Visits ({len(visits)})",
+            f"Appointments ({len(appointments)})",
+            f"Referrals ({len(referrals)})",
+        ])
+
+        with tab_visits:
+            _render_visit_timeline(visits)
+
+        with tab_appts:
+            _render_appointments_tab(appointments)
+
+        with tab_refs:
+            _render_referrals_tab(referrals)
 
     except RuntimeError as exc:
         st.error(f"Database error: {exc}")

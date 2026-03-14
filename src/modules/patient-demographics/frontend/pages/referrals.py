@@ -142,7 +142,7 @@ def _render_create_form(db: DatabaseConnection) -> None:
         st.warning("At least two physicians are needed to create a referral.")
         return
 
-    with st.form("create_referral_form", clear_on_submit=True):
+    with st.form("create_referral_form", clear_on_submit=False):
         # Patient selection
         patient_options = {
             f"{p['first_name']} {p['last_name']} ({p['patient_id']})": p["patient_id"]

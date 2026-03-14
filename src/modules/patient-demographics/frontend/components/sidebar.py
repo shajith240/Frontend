@@ -6,6 +6,7 @@ refresh button to update stats on demand.
 """
 
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -49,17 +50,18 @@ def _check_connection(db: DatabaseConnection) -> bool:
 
 
 def _get_quick_stats(db: DatabaseConnection) -> dict[str, int]:
-    """Fetch quick stats: total patients, total visits, active alerts.
+    """Fetch quick stats: patients, visits, upcoming appointments, active alerts.
 
     Args:
         db: Active DatabaseConnection.
 
     Returns:
-        Dict with keys total_patients, total_visits, active_alerts.
+        Dict with keys total_patients, total_visits, upcoming_appointments, active_alerts.
     """
     stats: dict[str, int] = {
         "total_patients": 0,
         "total_visits": 0,
+        "upcoming_appointments": 0,
         "active_alerts": 0,
     }
 
@@ -72,6 +74,18 @@ def _get_quick_stats(db: DatabaseConnection) -> dict[str, int]:
 
     try:
         stats["total_visits"] = db.get_collection("visits").count_documents({})
+    except PyMongoError:
+        pass
+
+    try:
+        stats["upcoming_appointments"] = db.get_collection(
+            "appointments"
+        ).count_documents(
+            {
+                "status": {"$in": ["scheduled", "confirmed"]},
+                "appointment_date_and_time": {"$gte": datetime.utcnow()},
+            }
+        )
     except PyMongoError:
         pass
 
@@ -132,10 +146,13 @@ def render(db: DatabaseConnection) -> Optional[str]:
 
         stats = st.session_state["sidebar_stats"]
 
-        stat_col1, stat_col2, stat_col3 = st.columns(3)
+        stat_col1, stat_col2 = st.columns(2)
         stat_col1.metric("Patients", stats["total_patients"])
         stat_col2.metric("Visits", stats["total_visits"])
-        stat_col3.metric("Alerts", stats["active_alerts"])
+
+        stat_col3, stat_col4 = st.columns(2)
+        stat_col3.metric("Appointments", stats["upcoming_appointments"])
+        stat_col4.metric("Alerts", stats["active_alerts"])
 
         # Refresh button
         if st.button("Refresh Stats", use_container_width=True):

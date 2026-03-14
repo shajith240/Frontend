@@ -32,6 +32,23 @@ _SEVERITY_COLORS: dict[str, str] = {
 }
 
 
+def _count_active_alerts(db: DatabaseConnection) -> int:
+    """Return the total number of unacknowledged alerts.
+
+    Args:
+        db: Active DatabaseConnection.
+
+    Returns:
+        Count of unacknowledged alerts, or 0 on error.
+    """
+    try:
+        return db.get_collection("alerts").count_documents(
+            {"is_acknowledged": False}
+        )
+    except PyMongoError:
+        return 0
+
+
 def _fetch_alerts(
     db: DatabaseConnection, alert_type: str = "All"
 ) -> list[dict]:
@@ -105,14 +122,22 @@ def render(db: DatabaseConnection) -> None:
     """Render the alerts panel with severity coloring and acknowledge buttons.
 
     Fetches unacknowledged alerts, displays them color-coded by severity,
-    and provides type filtering and per-alert acknowledgement.
+    and provides type filtering and per-alert acknowledgement.  When there
+    are no active alerts the filter is hidden to avoid clutter.
 
     Args:
         db: Active DatabaseConnection.
     """
-    st.subheader("Active Alerts")
+    # Quick count first so we can decide whether to show the filter
+    total_active = _count_active_alerts(db)
 
-    # Filter by alert type
+    st.subheader(f"Active Alerts ({total_active})")
+
+    if total_active == 0:
+        st.success("No active alerts. All clear!")
+        return
+
+    # Show the type filter only when there are alerts to filter
     type_options = ["All"] + [t.value.replace("_", " ").title() for t in AlertType]
     selected_type = st.selectbox(
         "Filter by Type",
@@ -133,7 +158,10 @@ def render(db: DatabaseConnection) -> None:
     alerts = _fetch_alerts(db, filter_value)
 
     if not alerts:
-        st.success("No active alerts. All clear!")
+        st.info(
+            f"No alerts matching **{selected_type}**. "
+            f"{total_active} alert(s) exist under other types."
+        )
         return
 
     st.caption(f"Showing {len(alerts)} unacknowledged alert(s)")
