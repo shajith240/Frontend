@@ -1,0 +1,366 @@
+"""Appointments page — schedule new appointments and view existing ones.
+
+Two sections:
+  1. Schedule New Appointment — with patient/physician selectors and conflict check
+  2. View Existing Appointments — filterable by status with patient and physician names
+
+The appointment_conflict_trigger fires automatically through create_appointment
+in crud.py to prevent double-booking physicians.
+"""
+
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+import streamlit as st
+from dotenv import load_dotenv
+from pymongo.errors import PyMongoError
+
+_MODULE_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_MODULE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_MODULE_ROOT))
+
+from backend.crud import create_appointment
+from backend.database import DatabaseConnection
+from backend.models import Appointment, AppointmentStatus
+
+load_dotenv()
+
+
+def _make_appointment_id(db: DatabaseConnection) -> str:
+    """Generate the next available APT-YYYY-NNN identifier.
+
+    Args:
+        db: Active DatabaseConnection.
+
+    Returns:
+        A new appointment_id string.
+    """
+    year = datetime.utcnow().year
+    prefix = f"APT-{year}-"
+
+    try:
+        latest = (
+            db.get_collection("appointments")
+            .find({"appointment_id": {"$regex": f"^{prefix}"}}, {"appointment_id": 1})
+            .sort("appointment_id", -1)
+            .limit(1)
+        )
+        latest_list = list(latest)
+        if latest_list:
+            last_num = int(latest_list[0]["appointment_id"].split("-")[-1])
+            return f"{prefix}{last_num + 1:03d}"
+    except Exception:
+        pass
+
+    return f"{prefix}001"
+
+
+def _fetch_patients(db: DatabaseConnection) -> list[dict]:
+    """Fetch all active patients for the dropdown selector.
+
+    Args:
+        db: Active DatabaseConnection.
+
+    Returns:
+        List of patient dicts with patient_id, first_name, last_name.
+    """
+    try:
+        return list(
+            db.get_collection("patients")
+            .find(
+                {"is_active": True},
+                {"_id": 0, "patient_id": 1, "first_name": 1, "last_name": 1},
+            )
+            .sort("last_name", 1)
+        )
+    except PyMongoError:
+        return []
+
+
+def _fetch_departments(db: DatabaseConnection) -> list[dict]:
+    """Fetch all departments for the filter dropdown.
+
+    Args:
+        db: Active DatabaseConnection.
+
+    Returns:
+        List of department dicts with department_id and department_name.
+    """
+    try:
+        return list(
+            db.get_collection("departments")
+            .find({}, {"_id": 0, "department_id": 1, "department_name": 1})
+            .sort("department_name", 1)
+        )
+    except PyMongoError:
+        return []
+
+
+def _fetch_physicians(
+    db: DatabaseConnection, department_id: str = ""
+) -> list[dict]:
+    """Fetch physicians, optionally filtered by department.
+
+    Args:
+        db: Active DatabaseConnection.
+        department_id: If provided, only return physicians in this department.
+
+    Returns:
+        List of physician dicts.
+    """
+    try:
+        query: dict[str, Any] = {"is_active": True}
+        if department_id:
+            query["department_id"] = department_id
+
+        return list(
+            db.get_collection("physicians")
+            .find(
+                query,
+                {
+                    "_id": 0,
+                    "physician_id": 1,
+                    "first_name": 1,
+                    "last_name": 1,
+                    "speciality": 1,
+                    "department_id": 1,
+                },
+            )
+            .sort("last_name", 1)
+        )
+    except PyMongoError:
+        return []
+
+
+def _render_schedule_form(db: DatabaseConnection) -> None:
+    """Render the appointment scheduling form.
+
+    Physician dropdown filters by the selected department. On submit, fires
+    appointment_conflict_trigger via create_appointment.
+
+    Args:
+        db: Active DatabaseConnection.
+    """
+    st.subheader("Schedule New Appointment")
+
+    patients = _fetch_patients(db)
+    departments = _fetch_departments(db)
+
+    if not patients:
+        st.warning("No active patients found. Register a patient first.")
+        return
+
+    with st.form("schedule_appointment_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            patient_options = {
+                f"{p['first_name']} {p['last_name']} ({p['patient_id']})": p["patient_id"]
+                for p in patients
+            }
+            selected_patient = st.selectbox(
+                "Select Patient *",
+                options=list(patient_options.keys()),
+            )
+
+            # Department filter for physician dropdown
+            dept_options = {"All Departments": ""}
+            dept_options.update(
+                {d["department_name"]: d["department_id"] for d in departments}
+            )
+            selected_dept = st.selectbox(
+                "Filter by Department",
+                options=list(dept_options.keys()),
+            )
+
+        with col2:
+            # Fetch physicians based on selected department
+            dept_id = dept_options.get(selected_dept, "")
+            physicians = _fetch_physicians(db, dept_id)
+
+            if physicians:
+                physician_options = {
+                    f"Dr. {p['first_name']} {p['last_name']} — {p['speciality']}": p[
+                        "physician_id"
+                    ]
+                    for p in physicians
+                }
+                selected_physician = st.selectbox(
+                    "Select Physician *",
+                    options=list(physician_options.keys()),
+                )
+            else:
+                st.info("No physicians available for this department.")
+                selected_physician = None
+                physician_options = {}
+
+            # Date and time picker — default to tomorrow at 10:00 AM
+            tomorrow = datetime.now() + timedelta(days=1)
+            appt_date = st.date_input("Appointment Date *", value=tomorrow.date())
+            appt_time = st.time_input("Appointment Time *", value=tomorrow.replace(hour=10, minute=0).time())
+
+        reason = st.text_area("Reason for Appointment *", placeholder="Routine checkup")
+
+        submitted = st.form_submit_button(
+            "Schedule Appointment", type="primary", use_container_width=True
+        )
+
+    if submitted:
+        errors: list[str] = []
+
+        if not selected_patient or selected_patient not in patient_options:
+            errors.append("Please select a patient")
+        if not selected_physician or selected_physician not in physician_options:
+            errors.append("Please select a physician")
+        if not reason.strip():
+            errors.append("Reason is required")
+
+        appt_datetime = datetime.combine(appt_date, appt_time)
+        if appt_datetime <= datetime.now():
+            errors.append("Appointment must be scheduled in the future")
+
+        if errors:
+            for error in errors:
+                st.error(error)
+            return
+
+        try:
+            appointment = Appointment(
+                appointment_id=_make_appointment_id(db),
+                patient_id=patient_options[selected_patient],
+                physician_id=physician_options[selected_physician],
+                appointment_date_and_time=appt_datetime,
+                reason=reason.strip(),
+            )
+
+            created_id = create_appointment(
+                db, appointment, performed_by="reception_desk"
+            )
+            st.success(f"Appointment scheduled! ID: **{created_id}**")
+
+        except ValueError as exc:
+            st.error(f"Scheduling conflict: {exc}")
+        except RuntimeError as exc:
+            st.error(f"Database error: {exc}")
+        except Exception as exc:
+            st.error(f"Unexpected error: {exc}")
+
+
+def _render_existing_appointments(db: DatabaseConnection) -> None:
+    """Display existing appointments in a filterable table.
+
+    Shows patient name, physician name, date/time, reason, and status.
+    Filterable by appointment status.
+
+    Args:
+        db: Active DatabaseConnection.
+    """
+    st.subheader("Existing Appointments")
+
+    status_filter = st.selectbox(
+        "Filter by Status",
+        options=["All"] + [s.value.title() for s in AppointmentStatus],
+        key="appt_status_filter",
+    )
+
+    try:
+        query: dict[str, Any] = {}
+        if status_filter != "All":
+            query["status"] = status_filter.lower()
+
+        # Use aggregation to join patient and physician names
+        pipeline: list[dict[str, Any]] = []
+        if query:
+            pipeline.append({"$match": query})
+
+        pipeline.extend([
+            {
+                "$lookup": {
+                    "from": "patients",
+                    "localField": "patient_id",
+                    "foreignField": "patient_id",
+                    "as": "patient",
+                }
+            },
+            {"$unwind": {"path": "$patient", "preserveNullAndEmptyArrays": True}},
+            {
+                "$lookup": {
+                    "from": "physicians",
+                    "localField": "physician_id",
+                    "foreignField": "physician_id",
+                    "as": "physician",
+                }
+            },
+            {"$unwind": {"path": "$physician", "preserveNullAndEmptyArrays": True}},
+            {
+                "$project": {
+                    "_id": 0,
+                    "appointment_id": 1,
+                    "patient_name": {
+                        "$concat": ["$patient.first_name", " ", "$patient.last_name"]
+                    },
+                    "patient_id": 1,
+                    "physician_name": {
+                        "$concat": [
+                            "Dr. ",
+                            "$physician.first_name",
+                            " ",
+                            "$physician.last_name",
+                        ]
+                    },
+                    "speciality": "$physician.speciality",
+                    "appointment_date_and_time": 1,
+                    "reason": 1,
+                    "status": 1,
+                }
+            },
+            {"$sort": {"appointment_date_and_time": -1}},
+        ])
+
+        results = list(db.get_collection("appointments").aggregate(pipeline))
+
+        if not results:
+            st.info("No appointments found matching the selected filter.")
+            return
+
+        # Format for display
+        display_data = []
+        for appt in results:
+            dt = appt.get("appointment_date_and_time")
+            dt_str = dt.strftime("%d %b %Y, %I:%M %p") if hasattr(dt, "strftime") else str(dt)
+
+            display_data.append({
+                "ID": appt.get("appointment_id", ""),
+                "Patient": appt.get("patient_name", "Unknown"),
+                "Physician": appt.get("physician_name", "Not assigned"),
+                "Speciality": appt.get("speciality", ""),
+                "Date & Time": dt_str,
+                "Reason": appt.get("reason", ""),
+                "Status": str(appt.get("status", "")).title(),
+            })
+
+        st.dataframe(display_data, use_container_width=True, hide_index=True)
+
+    except PyMongoError as exc:
+        st.error(f"Database error loading appointments: {exc}")
+    except Exception as exc:
+        st.error(f"Error loading appointments: {exc}")
+
+
+def render(db: DatabaseConnection) -> None:
+    """Render the appointments page with scheduling form and list view.
+
+    Args:
+        db: Active DatabaseConnection.
+    """
+    st.header("Appointments")
+
+    tab1, tab2 = st.tabs(["Schedule New", "View Existing"])
+
+    with tab1:
+        _render_schedule_form(db)
+
+    with tab2:
+        _render_existing_appointments(db)
