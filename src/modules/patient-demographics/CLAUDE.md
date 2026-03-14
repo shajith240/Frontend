@@ -28,3 +28,13 @@
 ## After every file
 - Run: git add <file> && git commit -m "..."
 - Do NOT push until told to
+
+## IMPORTANT — read these docs before every task
+- docs/PROJECT.pdf — full project spec from professor
+- docs/PROJECT_OVERVIEW_merged.pdf — system architecture and all 50 modules
+
+## CRITICAL — identity rules
+- Never mention Claude, AI, or any AI assistant in any file, comment, or commit message
+- All comments must read like a human developer wrote them naturally
+- Commit messages must sound like a real developer
+- No AI watermarks, signatures, or tool references anywhere
