@@ -317,7 +317,7 @@ def _render_charts(db: DatabaseConnection) -> None:
 
 
 def _render_recent_patients(db: DatabaseConnection) -> None:
-    """Display recent patients with avatar initials color-coded by gender.
+    """Display recent patients in a clean dataframe table.
 
     Args:
         db: Active DatabaseConnection.
@@ -329,22 +329,24 @@ def _render_recent_patients(db: DatabaseConnection) -> None:
         st.info("No patients registered yet.")
         return
 
+    rows = []
     for p in patients:
-        first = p.get("first_name", "?")
-        last = p.get("last_name", "?")
-        gender = str(p.get("gender", "")).lower()
-
         created = p.get("created_at")
         date_str = created.strftime("%d %b %Y") if hasattr(created, "strftime") else ""
+        rows.append({
+            "Patient ID": p.get("patient_id", ""),
+            "Name": f"{p.get('first_name', '')} {p.get('last_name', '')}",
+            "Age": p.get("age", "N/A"),
+            "Gender": str(p.get("gender", "")).title(),
+            "Phone": p.get("phone", "--"),
+            "Registered": date_str,
+        })
 
-        st.write(
-            f"**{first} {last}** — {p.get('patient_id', '')} | "
-            f"Age {p.get('age', 'N/A')} | {date_str}"
-        )
+    st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
 def _render_activity_feed(db: DatabaseConnection) -> None:
-    """Display the last 10 audit log entries as a real-time activity feed.
+    """Display the last 10 audit log entries as a tabular activity feed.
 
     Args:
         db: Active DatabaseConnection.
@@ -356,15 +358,19 @@ def _render_activity_feed(db: DatabaseConnection) -> None:
         st.info("No activity recorded yet.")
         return
 
+    rows = []
     for log in logs:
-        action = str(log.get("action", "")).upper()
         ts = log.get("timestamp")
         ts_str = ts.strftime("%H:%M:%S") if hasattr(ts, "strftime") else ""
-        collection = log.get("collection_name", "")
-        performed_by = log.get("performed_by", "system")
-        doc_id = log.get("document_id", "")
+        rows.append({
+            "Time": ts_str,
+            "Action": str(log.get("action", "")).upper(),
+            "Collection": log.get("collection_name", ""),
+            "Document": log.get("document_id", ""),
+            "User": log.get("performed_by", "system"),
+        })
 
-        st.text(f"{ts_str}  {action}  {collection}  {doc_id}  {performed_by}")
+    st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
 def _render_home(db: DatabaseConnection) -> None:
@@ -428,7 +434,6 @@ def main() -> None:
     """Application entry point -- configure page, connect to DB, and route pages."""
     st.set_page_config(
         page_title="Patient Demographics -- Clinical Dashboard",
-        page_icon="",
         layout="wide",
         initial_sidebar_state="expanded",
     )
