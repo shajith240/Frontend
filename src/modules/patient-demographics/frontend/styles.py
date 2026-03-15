@@ -65,11 +65,31 @@ def inject_css() -> None:
     --border: {BORDER};
 }}
 
-/* -- Global base --------------------------------------------------------- */
-.stApp {{
+/* =========================================================================
+   GLOBAL BASE — force light on every surface
+   ========================================================================= */
+html, body, .stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stHeader"],
+[data-testid="stToolbar"],
+[data-testid="stDecoration"],
+[data-testid="stStatusWidget"],
+[data-testid="stAppViewBlockContainer"],
+.main, .main .block-container,
+[data-testid="stVerticalBlock"],
+[data-testid="stHorizontalBlock"],
+[data-testid="block-container"] {{
     background-color: {BACKGROUND} !important;
     color: {TEXT} !important;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+}}
+
+/* Hide Streamlit branding */
+[data-testid="stHeader"] {{
+    background-color: {BACKGROUND} !important;
+}}
+footer, #MainMenu {{
+    visibility: hidden !important;
 }}
 
 /* -- Scrollbar ----------------------------------------------------------- */
@@ -78,14 +98,24 @@ def inject_css() -> None:
 ::-webkit-scrollbar-thumb {{ background: {BORDER}; border-radius: 3px; }}
 ::-webkit-scrollbar-thumb:hover {{ background: {TEXT_MUTED}; }}
 
-/* -- Sidebar ------------------------------------------------------------- */
-section[data-testid="stSidebar"] {{
+/* =========================================================================
+   SIDEBAR
+   ========================================================================= */
+section[data-testid="stSidebar"],
+section[data-testid="stSidebar"] > div,
+section[data-testid="stSidebar"] > div > div,
+section[data-testid="stSidebar"] [data-testid="stVerticalBlock"],
+section[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {{
     background-color: {SIDEBAR_BG} !important;
+    color: {TEXT} !important;
+}}
+section[data-testid="stSidebar"] {{
     border-right: 1px solid {BORDER} !important;
 }}
 section[data-testid="stSidebar"] .stMarkdown p,
 section[data-testid="stSidebar"] .stMarkdown span,
-section[data-testid="stSidebar"] label {{
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] .stMarkdown {{
     color: {TEXT} !important;
 }}
 section[data-testid="stSidebar"] [data-testid="stMetricValue"] {{
@@ -97,28 +127,40 @@ section[data-testid="stSidebar"] [data-testid="stMetricLabel"] {{
     color: {TEXT_MUTED} !important;
 }}
 
-/* -- Headers ------------------------------------------------------------- */
-h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {{
+/* =========================================================================
+   TYPOGRAPHY
+   ========================================================================= */
+h1, h2, h3, h4, h5, h6,
+.stMarkdown h1, .stMarkdown h2, .stMarkdown h3,
+.stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {{
     color: {TEXT} !important;
     font-family: 'Inter', sans-serif !important;
     font-weight: 700 !important;
     letter-spacing: -0.02em;
 }}
 
-/* -- Text ---------------------------------------------------------------- */
-p, span, li, label, .stMarkdown, .stText {{
+p, span, li, label, div,
+.stMarkdown, .stMarkdown p, .stMarkdown span, .stMarkdown li,
+.stText, [data-testid="stText"] {{
     color: {TEXT} !important;
 }}
-.stCaption, [data-testid="stCaptionContainer"] {{
+.stCaption, [data-testid="stCaptionContainer"],
+[data-testid="stCaptionContainer"] p {{
     color: {TEXT_MUTED} !important;
 }}
 
-/* -- Metric cards -------------------------------------------------------- */
+/* =========================================================================
+   METRIC CARDS — equal size
+   ========================================================================= */
 [data-testid="stMetric"] {{
     background-color: {CARD_BG} !important;
     border: 1px solid {BORDER} !important;
     border-radius: 12px !important;
     padding: 20px 16px !important;
+    min-height: 110px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }}
 [data-testid="stMetric"]:hover {{
@@ -143,7 +185,15 @@ p, span, li, label, .stMarkdown, .stText {{
     font-weight: 600 !important;
 }}
 
-/* -- Containers ---------------------------------------------------------- */
+/* Force metric column containers to equal height */
+[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {{
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+}}
+
+/* =========================================================================
+   CONTAINERS, FORMS, EXPANDERS
+   ========================================================================= */
 [data-testid="stExpander"],
 [data-testid="stForm"],
 div[data-testid="stVerticalBlockBorderWrapper"] > div:has(> [data-testid="stVerticalBlock"]) {{
@@ -154,8 +204,17 @@ div[data-testid="stVerticalBlockBorderWrapper"] > div:has(> [data-testid="stVert
     border: 1px solid {BORDER} !important;
     border-radius: 12px !important;
 }}
-[data-testid="stExpander"] summary {{
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] summary span,
+[data-testid="stExpander"] summary p {{
     color: {TEXT} !important;
+    background-color: transparent !important;
+}}
+[data-testid="stExpander"] details {{
+    background-color: {CARD_BG} !important;
+}}
+[data-testid="stExpander"] [data-testid="stVerticalBlock"] {{
+    background-color: {CARD_BG} !important;
 }}
 
 /* bordered containers */
@@ -170,7 +229,16 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(> div[style*="border"]):hove
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
 }}
 
-/* -- Buttons ------------------------------------------------------------- */
+[data-testid="stForm"] {{
+    background-color: {CARD_BG} !important;
+    border: 1px solid {BORDER} !important;
+    border-radius: 12px !important;
+    padding: 24px !important;
+}}
+
+/* =========================================================================
+   BUTTONS
+   ========================================================================= */
 .stButton > button {{
     background: linear-gradient(135deg, {PRIMARY} 0%, {PRIMARY_HOVER} 100%) !important;
     color: #FFFFFF !important;
@@ -189,26 +257,34 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(> div[style*="border"]):hove
 .stButton > button:active {{
     transform: translateY(0) !important;
 }}
-/* secondary / non-primary buttons */
 .stButton > button[kind="secondary"] {{
     background: {CARD_BG} !important;
     border: 1px solid {BORDER} !important;
     color: {TEXT} !important;
 }}
-
-/* -- Form ---------------------------------------------------------------- */
-[data-testid="stForm"] {{
-    background-color: {CARD_BG} !important;
+.stDownloadButton > button {{
+    background: {CARD_BG} !important;
     border: 1px solid {BORDER} !important;
-    border-radius: 12px !important;
-    padding: 24px !important;
+    color: {TEXT} !important;
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+}}
+.stDownloadButton > button:hover {{
+    border-color: {PRIMARY} !important;
+    color: {PRIMARY} !important;
 }}
 
-/* -- Inputs -------------------------------------------------------------- */
+/* =========================================================================
+   INPUTS — text, number, date, textarea
+   ========================================================================= */
 .stTextInput > div > div > input,
 .stTextArea > div > div > textarea,
 .stNumberInput > div > div > input,
-.stDateInput > div > div > input {{
+.stDateInput > div > div > input,
+.stTimeInput > div > div > input,
+input[type="text"],
+input[type="number"],
+textarea {{
     background-color: {BACKGROUND} !important;
     color: {TEXT} !important;
     border: 1px solid {BORDER} !important;
@@ -218,27 +294,72 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(> div[style*="border"]):hove
 }}
 .stTextInput > div > div > input:focus,
 .stTextArea > div > div > textarea:focus {{
-    border-color: {BORDER} !important;
-    box-shadow: 0 0 0 2px rgba(226, 232, 240, 0.4) !important;
+    border-color: {PRIMARY} !important;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15) !important;
 }}
 
-/* Error state inputs — red only */
-.stTextInput[data-stale="true"] > div > div > input,
-div[data-testid="stAlert"][data-baseweb="notification"] + .stTextInput > div > div > input {{
-    border-color: {DANGER} !important;
-    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2) !important;
+/* Input labels */
+.stTextInput label, .stTextArea label, .stNumberInput label,
+.stDateInput label, .stTimeInput label, .stSelectbox label,
+.stMultiSelect label, .stRadio label, .stCheckbox label {{
+    color: {TEXT} !important;
 }}
 
-/* Selectbox / dropdown */
+/* =========================================================================
+   SELECTBOX / DROPDOWN — full override for dark mode internals
+   ========================================================================= */
 .stSelectbox > div > div,
-.stMultiSelect > div > div {{
+.stMultiSelect > div > div,
+[data-baseweb="select"] > div,
+[data-baseweb="select"] {{
     background-color: {BACKGROUND} !important;
     border: 1px solid {BORDER} !important;
     border-radius: 8px !important;
     color: {TEXT} !important;
 }}
+/* Selected value text */
+[data-baseweb="select"] span,
+[data-baseweb="select"] div[class*="ValueContainer"] span,
+[data-baseweb="select"] [data-testid="stMarkdownContainer"] {{
+    color: {TEXT} !important;
+}}
+/* Dropdown menu */
+[data-baseweb="popover"],
+[data-baseweb="popover"] > div,
+[data-baseweb="menu"],
+[data-baseweb="menu"] > div,
+ul[role="listbox"],
+ul[role="listbox"] > li {{
+    background-color: {BACKGROUND} !important;
+    color: {TEXT} !important;
+    border-color: {BORDER} !important;
+}}
+/* Dropdown option hover — subtle gray, not blue */
+ul[role="listbox"] > li:hover,
+ul[role="listbox"] > li[aria-selected="true"],
+[data-baseweb="menu"] li:hover,
+[data-baseweb="menu"] li[aria-selected="true"],
+li[role="option"]:hover,
+li[role="option"][aria-selected="true"] {{
+    background-color: {SIDEBAR_BG} !important;
+    color: {TEXT} !important;
+}}
+/* Dropdown option text */
+ul[role="listbox"] > li > div,
+[data-baseweb="menu"] li span,
+li[role="option"] span {{
+    color: {TEXT} !important;
+}}
+/* Dropdown search input */
+[data-baseweb="popover"] input {{
+    background-color: {BACKGROUND} !important;
+    color: {TEXT} !important;
+    border-color: {BORDER} !important;
+}}
 
-/* -- Tabs ---------------------------------------------------------------- */
+/* =========================================================================
+   TABS — selected tab uses teal accent, not blue highlight
+   ========================================================================= */
 .stTabs [data-baseweb="tab-list"] {{
     gap: 4px;
     background-color: {SIDEBAR_BG} !important;
@@ -255,12 +376,21 @@ div[data-testid="stAlert"][data-baseweb="notification"] + .stTextInput > div > d
     transition: all 0.2s ease !important;
 }}
 .stTabs [aria-selected="true"] {{
-    background: {PRIMARY} !important;
+    background: {TEXT} !important;
     color: #FFFFFF !important;
     font-weight: 600 !important;
 }}
+/* Tab highlight bar — remove the blue underline */
+.stTabs [data-baseweb="tab-highlight"] {{
+    background-color: transparent !important;
+}}
+.stTabs [data-baseweb="tab-border"] {{
+    background-color: transparent !important;
+}}
 
-/* -- Dataframes ---------------------------------------------------------- */
+/* =========================================================================
+   DATAFRAMES / TABLES
+   ========================================================================= */
 [data-testid="stDataFrame"] {{
     border-radius: 12px !important;
     overflow: hidden !important;
@@ -269,33 +399,27 @@ div[data-testid="stAlert"][data-baseweb="notification"] + .stTextInput > div > d
     border: 1px solid {BORDER} !important;
     border-radius: 12px !important;
 }}
+/* Table header and cells */
+[data-testid="stDataFrame"] th {{
+    background-color: {SIDEBAR_BG} !important;
+    color: {TEXT} !important;
+}}
+[data-testid="stDataFrame"] td {{
+    background-color: {BACKGROUND} !important;
+    color: {TEXT} !important;
+}}
 
-/* -- Alert / Info / Success / Warning / Error boxes ---------------------- */
+/* =========================================================================
+   ALERT / INFO / SUCCESS / WARNING / ERROR boxes
+   ========================================================================= */
 [data-testid="stAlert"] {{
     border-radius: 10px !important;
     font-family: 'Inter', sans-serif !important;
 }}
 
-/* -- Dividers ------------------------------------------------------------ */
-hr {{
-    border-color: {BORDER} !important;
-    opacity: 0.5;
-}}
-
-/* -- Code blocks --------------------------------------------------------- */
-pre, code, .stCode {{
-    background-color: {SIDEBAR_BG} !important;
-    border: 1px solid {BORDER} !important;
-    border-radius: 8px !important;
-    color: {TEXT} !important;
-}}
-
-/* -- Spinner ------------------------------------------------------------- */
-[data-testid="stSpinner"] > div {{
-    border-top-color: {PRIMARY} !important;
-}}
-
-/* -- Radio buttons in sidebar -------------------------------------------- */
+/* =========================================================================
+   RADIO BUTTONS — sidebar nav selection style (no blue)
+   ========================================================================= */
 .stRadio > div {{
     gap: 2px !important;
 }}
@@ -304,28 +428,131 @@ pre, code, .stCode {{
     border-radius: 8px !important;
     transition: all 0.2s ease !important;
     cursor: pointer !important;
+    color: {TEXT} !important;
+    background: transparent !important;
 }}
 .stRadio > div > label:hover {{
-    background: rgba(37, 99, 235, 0.05) !important;
+    background: rgba(30, 41, 59, 0.06) !important;
 }}
-.stRadio > div > label[data-checked="true"] {{
-    background: rgba(37, 99, 235, 0.1) !important;
+/* Selected radio — dark pill, white text */
+.stRadio > div > label[data-checked="true"],
+.stRadio > div > label:has(input:checked) {{
+    background: {TEXT} !important;
+    color: #FFFFFF !important;
+}}
+.stRadio > div > label[data-checked="true"] span,
+.stRadio > div > label[data-checked="true"] p,
+.stRadio > div > label:has(input:checked) span,
+.stRadio > div > label:has(input:checked) p {{
+    color: #FFFFFF !important;
 }}
 
-/* -- Progress bar -------------------------------------------------------- */
+/* =========================================================================
+   CHECKBOX
+   ========================================================================= */
+.stCheckbox label span {{
+    color: {TEXT} !important;
+}}
+
+/* =========================================================================
+   DIVIDERS
+   ========================================================================= */
+hr {{
+    border-color: {BORDER} !important;
+    opacity: 0.5;
+}}
+
+/* =========================================================================
+   CODE BLOCKS
+   ========================================================================= */
+pre, code, .stCode,
+[data-testid="stCode"],
+[data-testid="stCode"] pre {{
+    background-color: {SIDEBAR_BG} !important;
+    border: 1px solid {BORDER} !important;
+    border-radius: 8px !important;
+    color: {TEXT} !important;
+}}
+
+/* =========================================================================
+   JSON VIEWER
+   ========================================================================= */
+[data-testid="stJson"],
+[data-testid="stJson"] > div {{
+    background-color: {SIDEBAR_BG} !important;
+    border: 1px solid {BORDER} !important;
+    border-radius: 8px !important;
+    color: {TEXT} !important;
+}}
+
+/* =========================================================================
+   SPINNER
+   ========================================================================= */
+[data-testid="stSpinner"] > div {{
+    border-top-color: {PRIMARY} !important;
+}}
+
+/* =========================================================================
+   PROGRESS BAR
+   ========================================================================= */
 .stProgress > div > div > div {{
     background: linear-gradient(90deg, {PRIMARY} 0%, {SUCCESS} 100%) !important;
     border-radius: 4px !important;
 }}
 
-/* -- JSON viewer --------------------------------------------------------- */
-[data-testid="stJson"] {{
-    background-color: {SIDEBAR_BG} !important;
+/* =========================================================================
+   TOOLTIP
+   ========================================================================= */
+[data-testid="stTooltipContent"] {{
+    background: {CARD_BG} !important;
+    color: {TEXT} !important;
     border: 1px solid {BORDER} !important;
     border-radius: 8px !important;
 }}
 
-/* -- Smooth transitions for page content --------------------------------- */
+/* =========================================================================
+   STREAMLIT INTERNAL DARK-MODE OVERRIDES
+   ========================================================================= */
+/* Widget containers and wrappers */
+[data-testid="stWidgetLabel"],
+[data-testid="stWidgetLabel"] p,
+[data-testid="stMarkdownContainer"],
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] span {{
+    color: {TEXT} !important;
+}}
+
+/* Popover / date picker / modal backgrounds */
+[data-baseweb="popover"] > div,
+[data-baseweb="calendar"] {{
+    background-color: {BACKGROUND} !important;
+    color: {TEXT} !important;
+}}
+[data-baseweb="calendar"] div {{
+    color: {TEXT} !important;
+}}
+
+/* Number input +/- buttons */
+.stNumberInput button {{
+    background-color: {SIDEBAR_BG} !important;
+    border-color: {BORDER} !important;
+    color: {TEXT} !important;
+}}
+
+/* Multiselect tags */
+[data-baseweb="tag"] {{
+    background-color: {SIDEBAR_BG} !important;
+    color: {TEXT} !important;
+}}
+
+/* Ensure all icon SVGs in Streamlit widgets are visible */
+.stSelectbox svg, .stMultiSelect svg,
+.stDateInput svg, .stTimeInput svg,
+.stNumberInput svg {{
+    fill: {TEXT_MUTED} !important;
+}}
+
+/* Bottom padding for page content */
 .main .block-container {{
     animation: fadeIn 0.3s ease-in-out;
     padding-top: 2rem !important;
@@ -334,14 +561,6 @@ pre, code, .stCode {{
 @keyframes fadeIn {{
     from {{ opacity: 0; transform: translateY(8px); }}
     to {{ opacity: 1; transform: translateY(0); }}
-}}
-
-/* -- Tooltip ------------------------------------------------------------- */
-[data-testid="stTooltipContent"] {{
-    background: {CARD_BG} !important;
-    color: {TEXT} !important;
-    border: 1px solid {BORDER} !important;
-    border-radius: 8px !important;
 }}
 </style>
 """,
