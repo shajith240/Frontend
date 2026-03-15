@@ -8,9 +8,6 @@ in Module 1:
   4. Trigger Demonstrations (all 5 triggers with live fire)
   5. Stored Procedures (3 procedure simulations with live execution)
   6. Audit Log Viewer (real-time proof that triggers are working)
-
-Dark terminal aesthetic for code blocks, metrics bar, and side-by-side
-SQL/MongoDB comparison.
 """
 
 import inspect
@@ -72,32 +69,30 @@ load_dotenv()
 
 
 # ============================================================================
-# Section 1 — Schema & Normalization
+# Section 1 -- Schema & Normalization
 # ============================================================================
 
 def _render_schema_section() -> None:
     """Render Section 1: Schema & Normalization with collection details and ER relationships."""
-    st.markdown(
-        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:16px;">'
-        "Our database is normalized into <strong style='color:#F8FAFC;'>9 separate collections</strong>, "
-        "each storing a single entity type. This eliminates redundancy and ensures referential integrity.</p>",
-        unsafe_allow_html=True,
+    st.caption(
+        "Our database is normalized into 9 separate collections, "
+        "each storing a single entity type. This eliminates redundancy and ensures referential integrity."
     )
 
     collections_data = [
-        {"Collection": "patients", "Primary Key": "patient_id (PAT-YYYY-NNN)", "Key Fields": "first_name, last_name, date_of_birth, gender, phone, email, address, insurance", "Purpose": "Core patient demographics — central entity", "Normalization": "3NF: all fields depend on patient_id"},
-        {"Collection": "physicians", "Primary Key": "physician_id", "Key Fields": "first_name, last_name, speciality, department_id (FK)", "Purpose": "Physician registry with department assignment", "Normalization": "department_id is FK — details stored separately"},
+        {"Collection": "patients", "Primary Key": "patient_id (PAT-YYYY-NNN)", "Key Fields": "first_name, last_name, date_of_birth, gender, phone, email, address, insurance", "Purpose": "Core patient demographics -- central entity", "Normalization": "3NF: all fields depend on patient_id"},
+        {"Collection": "physicians", "Primary Key": "physician_id", "Key Fields": "first_name, last_name, speciality, department_id (FK)", "Purpose": "Physician registry with department assignment", "Normalization": "department_id is FK -- details stored separately"},
         {"Collection": "departments", "Primary Key": "department_id", "Key Fields": "department_name, location", "Purpose": "Hospital department master data", "Normalization": "Prevents repeating department info in every physician"},
         {"Collection": "visits", "Primary Key": "visit_id", "Key Fields": "visit_date, reason, diagnosis, status, patient_id (FK), physician_id (FK)", "Purpose": "Clinical visit records", "Normalization": "FKs to patients and physicians"},
         {"Collection": "appointments", "Primary Key": "appointment_id", "Key Fields": "appointment_date_and_time, reason, status, patient_id (FK), physician_id (FK)", "Purpose": "Scheduled appointments with conflict detection", "Normalization": "Same FK pattern as visits"},
         {"Collection": "referrals", "Primary Key": "referral_id", "Key Fields": "referral_date, reason, status, patient_id (FK), source/target_physician_id (FK)", "Purpose": "Inter-physician referral tracking", "Normalization": "Two FK references to physicians"},
-        {"Collection": "visit_departments", "Primary Key": "(visit_id, department_id)", "Key Fields": "visit_id (FK), department_id (FK)", "Purpose": "Junction table — Visit-Department M:N", "Normalization": "Classic junction table pattern"},
+        {"Collection": "visit_departments", "Primary Key": "(visit_id, department_id)", "Key Fields": "visit_id (FK), department_id (FK)", "Purpose": "Junction table -- Visit-Department M:N", "Normalization": "Classic junction table pattern"},
         {"Collection": "alerts", "Primary Key": "alert_id", "Key Fields": "patient_id (FK), alert_type, severity, title, message", "Purpose": "System-generated clinical alerts", "Normalization": "Separate to track alert lifecycle independently"},
-        {"Collection": "audit_logs", "Primary Key": "log_id", "Key Fields": "patient_id, action, collection_name, document_id, performed_by", "Purpose": "Immutable audit trail", "Normalization": "Append-only — never updated"},
+        {"Collection": "audit_logs", "Primary Key": "log_id", "Key Fields": "patient_id, action, collection_name, document_id, performed_by", "Purpose": "Immutable audit trail", "Normalization": "Append-only -- never updated"},
     ]
     st.dataframe(collections_data, use_container_width=True, hide_index=True)
 
-    with st.expander("VisitDepartment Junction Table — Resolving M-to-N"):
+    with st.expander("VisitDepartment Junction Table -- Resolving M-to-N"):
         left, right = st.columns(2)
         with left:
             st.markdown("**SQL Equivalent:**")
@@ -123,21 +118,21 @@ def _render_schema_section() -> None:
 
     with st.expander("ER Diagram Relationships"):
         relationships = [
-            {"Entity A": "Patient", "Relationship": "1 ──< N", "Entity B": "Visit", "FK Location": "visits.patient_id"},
-            {"Entity A": "Patient", "Relationship": "1 ──< N", "Entity B": "Appointment", "FK Location": "appointments.patient_id"},
-            {"Entity A": "Patient", "Relationship": "1 ──< N", "Entity B": "Referral", "FK Location": "referrals.patient_id"},
-            {"Entity A": "Physician", "Relationship": "1 ──< N", "Entity B": "Visit", "FK Location": "visits.physician_id"},
-            {"Entity A": "Physician", "Relationship": "1 ──< N", "Entity B": "Appointment", "FK Location": "appointments.physician_id"},
-            {"Entity A": "Department", "Relationship": "1 ──< N", "Entity B": "Physician", "FK Location": "physicians.department_id"},
-            {"Entity A": "Visit", "Relationship": "M ──>< N", "Entity B": "Department", "FK Location": "visit_departments (junction)"},
-            {"Entity A": "Physician (src)", "Relationship": "1 ──< N", "Entity B": "Referral", "FK Location": "referrals.source_physician_id"},
-            {"Entity A": "Physician (tgt)", "Relationship": "1 ──< N", "Entity B": "Referral", "FK Location": "referrals.target_physician_id"},
+            {"Entity A": "Patient", "Relationship": "1 --< N", "Entity B": "Visit", "FK Location": "visits.patient_id"},
+            {"Entity A": "Patient", "Relationship": "1 --< N", "Entity B": "Appointment", "FK Location": "appointments.patient_id"},
+            {"Entity A": "Patient", "Relationship": "1 --< N", "Entity B": "Referral", "FK Location": "referrals.patient_id"},
+            {"Entity A": "Physician", "Relationship": "1 --< N", "Entity B": "Visit", "FK Location": "visits.physician_id"},
+            {"Entity A": "Physician", "Relationship": "1 --< N", "Entity B": "Appointment", "FK Location": "appointments.physician_id"},
+            {"Entity A": "Department", "Relationship": "1 --< N", "Entity B": "Physician", "FK Location": "physicians.department_id"},
+            {"Entity A": "Visit", "Relationship": "M -->< N", "Entity B": "Department", "FK Location": "visit_departments (junction)"},
+            {"Entity A": "Physician (src)", "Relationship": "1 --< N", "Entity B": "Referral", "FK Location": "referrals.source_physician_id"},
+            {"Entity A": "Physician (tgt)", "Relationship": "1 --< N", "Entity B": "Referral", "FK Location": "referrals.target_physician_id"},
         ]
         st.dataframe(relationships, use_container_width=True, hide_index=True)
 
 
 # ============================================================================
-# Section 2 — Indexes & Constraints
+# Section 2 -- Indexes & Constraints
 # ============================================================================
 
 def _render_indexes_section(db: DatabaseConnection) -> None:
@@ -146,10 +141,8 @@ def _render_indexes_section(db: DatabaseConnection) -> None:
     Args:
         db: Active DatabaseConnection.
     """
-    st.markdown(
-        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:16px;">'
-        "Indexes speed up queries. Pydantic models enforce constraints equivalent to SQL CHECK/NOT NULL.</p>",
-        unsafe_allow_html=True,
+    st.caption(
+        "Indexes speed up queries. Pydantic models enforce constraints equivalent to SQL CHECK/NOT NULL."
     )
 
     indexes_data = [
@@ -190,7 +183,7 @@ def _render_indexes_section(db: DatabaseConnection) -> None:
 
 
 # ============================================================================
-# Section 3 — Live Query Execution
+# Section 3 -- Live Query Execution
 # ============================================================================
 
 _QUERY_REGISTRY: list[dict[str, Any]] = [
@@ -231,16 +224,14 @@ def _render_queries_section(db: DatabaseConnection) -> None:
     Args:
         db: Active DatabaseConnection.
     """
-    st.markdown(
-        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:16px;">'
-        "All 10 aggregation pipelines are MongoDB equivalents of SQL queries.</p>",
-        unsafe_allow_html=True,
+    st.caption(
+        "All 10 aggregation pipelines are MongoDB equivalents of SQL queries."
     )
 
     # Metrics bar
     total_run = st.session_state.get("dbms_queries_run", 0)
     avg_time = st.session_state.get("dbms_avg_time", 0.0)
-    last_run = st.session_state.get("dbms_last_run", "—")
+    last_run = st.session_state.get("dbms_last_run", "--")
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Queries Run", total_run)
@@ -299,13 +290,13 @@ def _render_queries_section(db: DatabaseConnection) -> None:
                     elif isinstance(result, list) and result:
                         st.dataframe(result, use_container_width=True, hide_index=True)
                     else:
-                        st.info("No results — seed data may not be loaded.")
+                        st.info("No results -- seed data may not be loaded.")
                 except Exception as exc:
                     st.error(f"Query failed: {exc}")
 
 
 # ============================================================================
-# Section 4 — Trigger Demonstrations
+# Section 4 -- Trigger Demonstrations
 # ============================================================================
 
 _TRIGGER_INFO: list[dict[str, str]] = [
@@ -323,10 +314,8 @@ def _render_triggers_section(db: DatabaseConnection) -> None:
     Args:
         db: Active DatabaseConnection.
     """
-    st.markdown(
-        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:16px;">'
-        "Triggers fire automatically inside CRUD operations — exactly like SQL CREATE TRIGGER.</p>",
-        unsafe_allow_html=True,
+    st.caption(
+        "Triggers fire automatically inside CRUD operations -- exactly like SQL CREATE TRIGGER."
     )
 
     trigger_overview = [
@@ -422,7 +411,7 @@ def _render_trigger_demo(db: DatabaseConnection, trigger_name: str) -> None:
                 if count_after > count_before:
                     st.success(f"Alert raised for {sample_pid}! (before: {count_before}, after: {count_after})")
                 else:
-                    st.info(f"No alert — {sample_pid} does not exceed threshold.")
+                    st.info(f"No alert -- {sample_pid} does not exceed threshold.")
             except Exception as exc:
                 st.error(f"Demo error: {exc}")
 
@@ -471,7 +460,7 @@ def _render_trigger_demo(db: DatabaseConnection, trigger_name: str) -> None:
 
 
 # ============================================================================
-# Section 5 — Stored Procedures
+# Section 5 -- Stored Procedures
 # ============================================================================
 
 def generate_patient_summary(db: DatabaseConnection, patient_id: str) -> Optional[dict]:
@@ -664,10 +653,8 @@ def _render_procedures_section(db: DatabaseConnection) -> None:
     Args:
         db: Active DatabaseConnection.
     """
-    st.markdown(
-        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:16px;">'
-        "Stored procedures encapsulate multi-step logic into single callable units.</p>",
-        unsafe_allow_html=True,
+    st.caption(
+        "Stored procedures encapsulate multi-step logic into single callable units."
     )
 
     procedures = [
@@ -769,7 +756,7 @@ def _render_procedures_section(db: DatabaseConnection) -> None:
                 result = process_referral_chain(db, pid_input2)
                 elapsed = time.time() - start
                 if result:
-                    st.success(f"Executed in {elapsed:.3f}s — **{result['total_referrals']}** referrals")
+                    st.success(f"Executed in {elapsed:.3f}s -- **{result['total_referrals']}** referrals")
                     if result["referral_chain"]:
                         st.dataframe(result["referral_chain"], use_container_width=True, hide_index=True)
                     else:
@@ -781,7 +768,7 @@ def _render_procedures_section(db: DatabaseConnection) -> None:
 
 
 # ============================================================================
-# Section 6 — Audit Log Viewer
+# Section 6 -- Audit Log Viewer
 # ============================================================================
 
 def _render_audit_section(db: DatabaseConnection) -> None:
@@ -790,10 +777,8 @@ def _render_audit_section(db: DatabaseConnection) -> None:
     Args:
         db: Active DatabaseConnection.
     """
-    st.markdown(
-        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:16px;">'
-        "Every CRUD operation fires the audit_log_trigger. This viewer shows the live audit trail.</p>",
-        unsafe_allow_html=True,
+    st.caption(
+        "Every CRUD operation fires the audit_log_trigger. This viewer shows the live audit trail."
     )
 
     col1, col2, col3 = st.columns(3)
@@ -891,21 +876,19 @@ def render(db: DatabaseConnection) -> None:
     Args:
         db: Active DatabaseConnection.
     """
-    st.markdown(
-        '<h2 style="margin-bottom:4px;">DBMS Concepts</h2>'
-        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:20px;">'
+    st.subheader("DBMS Concepts")
+    st.caption(
         "Normalization, Indexes, Constraints, Views (aggregation pipelines), "
-        "Triggers, Stored Procedures, and Audit Logging.</p>",
-        unsafe_allow_html=True,
+        "Triggers, Stored Procedures, and Audit Logging."
     )
 
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📐 Schema",
-        "🔑 Indexes",
-        "⚡ Queries",
-        "🔔 Triggers",
-        "📦 Procedures",
-        "📜 Audit Log",
+        "Schema",
+        "Indexes",
+        "Queries",
+        "Triggers",
+        "Procedures",
+        "Audit Log",
     ])
 
     with tab1:

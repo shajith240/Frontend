@@ -1,8 +1,7 @@
 """API Explorer page — interactive documentation and live testing for the REST API.
 
-Replaces the raw FastAPI /docs with a styled, dark-themed API reference.
 Shows endpoint cards with method badges, parameters, example responses,
-live test panel, response time indicator, and copy curl button.
+live test panel, and response time indicator.
 """
 
 import json
@@ -290,15 +289,12 @@ def render(db: DatabaseConnection) -> None:
     Args:
         db: Active DatabaseConnection.
     """
-    st.markdown(
-        '<h2 style="margin-bottom:4px;">API Explorer</h2>'
-        '<p style="color:#94A3B8; font-size:0.85rem; margin-bottom:4px;">'
+    st.subheader("API Explorer")
+    st.caption(
         "Interactive documentation for the Patient Demographics REST API. "
-        "Other modules use these endpoints to query patient data.</p>"
-        '<p style="font-family:monospace; font-size:0.8rem; color:#2563EB; margin-bottom:20px;">'
-        f'Base URL: {_BASE_URL}/api</p>',
-        unsafe_allow_html=True,
+        "Other modules use these endpoints to query patient data."
     )
+    st.code(f"Base URL: {_BASE_URL}/api", language=None)
 
     sample_pid = _get_sample_patient_id(db)
 
@@ -309,23 +305,12 @@ def render(db: DatabaseConnection) -> None:
         tag = endpoint["tags"][0] if endpoint["tags"] else ""
 
         with st.expander(
-            f"{method}  {path}  —  {endpoint['description'][:60]}..."
+            f"{method}  {path}  --  {endpoint['description'][:60]}..."
             if len(endpoint["description"]) > 60
-            else f"{method}  {path}  —  {endpoint['description']}"
+            else f"{method}  {path}  --  {endpoint['description']}"
         ):
             # Method badge + path
-            st.markdown(
-                f"""<div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
-                    <span style="font-size:0.7rem; font-weight:700; color:white;
-                        background:{color}; padding:3px 10px; border-radius:4px;
-                        font-family:monospace;">{method}</span>
-                    <code style="font-size:0.85rem; color:#F8FAFC;">{path}</code>
-                    <span style="font-size:0.6rem; color:#64748B; text-transform:uppercase;
-                        letter-spacing:0.05em;">{tag}</span>
-                </div>""",
-                unsafe_allow_html=True,
-            )
-
+            st.write(f"**`{method}`** `{path}` *{tag}*")
             st.write(endpoint["description"])
 
             # Parameters
@@ -346,12 +331,7 @@ def render(db: DatabaseConnection) -> None:
             st.divider()
 
             # Live test panel
-            st.markdown(
-                '<p style="font-size:0.75rem; font-weight:600; color:#94A3B8; '
-                'text-transform:uppercase; letter-spacing:0.08em; margin-bottom:8px;">'
-                "Live Test</p>",
-                unsafe_allow_html=True,
-            )
+            st.caption("LIVE TEST")
 
             params: dict[str, str] = {}
             for param in endpoint["parameters"]:
@@ -372,21 +352,10 @@ def render(db: DatabaseConnection) -> None:
                 with st.spinner("Executing..."):
                     response = _execute_demo(db, endpoint["demo_key"], params)
 
-                # Response time indicator
+                # Response info
                 time_ms = response["time_ms"]
-                time_color = "#10B981" if time_ms < 100 else "#F59E0B" if time_ms < 500 else "#EF4444"
                 status = response["status"]
-                status_color = "#10B981" if status < 400 else "#F59E0B" if status < 500 else "#EF4444"
-
-                st.markdown(
-                    f"""<div style="display:flex; gap:16px; align-items:center; margin:8px 0;">
-                        <span style="font-size:0.75rem; font-weight:600;
-                            color:{status_color};">Status: {status}</span>
-                        <span style="font-size:0.75rem; font-weight:600;
-                            color:{time_color};">⏱ {time_ms:.1f}ms</span>
-                    </div>""",
-                    unsafe_allow_html=True,
-                )
+                st.write(f"**Status:** {status} | **Time:** {time_ms:.1f}ms")
 
                 # Response body
                 try:

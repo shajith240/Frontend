@@ -1,25 +1,25 @@
-"""Global CSS theme — deep navy clinical dashboard with glassmorphism cards.
+"""Global CSS theme — clean light clinical dashboard.
 
-Injects a single <style> block into Streamlit that overrides the default
+Injects a single <style> block into Streamlit that sets a consistent
 light theme. Called once from app.py on every page load.
 """
 
 import streamlit as st
 
 
-# Design tokens
-NAVY = "#0A0F1E"
-NAVY_LIGHT = "#111827"
-NAVY_CARD = "#1E293B"
+# Design tokens — light theme
+BACKGROUND = "#FFFFFF"
+SIDEBAR_BG = "#F8FAFC"
+CARD_BG = "#FFFFFF"
 PRIMARY = "#2563EB"
 PRIMARY_HOVER = "#3B82F6"
 SUCCESS = "#10B981"
 WARNING = "#F59E0B"
 DANGER = "#EF4444"
-TEXT = "#F8FAFC"
-TEXT_MUTED = "#94A3B8"
-BORDER = "#334155"
-GRID = "#1E293B"
+TEXT = "#1E293B"
+TEXT_MUTED = "#64748B"
+BORDER = "#E2E8F0"
+GRID = "#E2E8F0"
 
 # Plotly layout defaults — importable by any page that builds charts
 PLOTLY_LAYOUT = dict(
@@ -30,7 +30,7 @@ PLOTLY_LAYOUT = dict(
     xaxis=dict(gridcolor=GRID, zerolinecolor=GRID),
     yaxis=dict(gridcolor=GRID, zerolinecolor=GRID),
     legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=TEXT)),
-    hoverlabel=dict(bgcolor=NAVY_CARD, font_color=TEXT, bordercolor=BORDER),
+    hoverlabel=dict(bgcolor=CARD_BG, font_color=TEXT, bordercolor=BORDER),
 )
 
 PLOTLY_CONFIG = {"displaylogo": False, "displayModeBar": False}
@@ -40,21 +40,21 @@ CHART_COLORS = [PRIMARY, SUCCESS, WARNING, DANGER, "#8B5CF6", "#EC4899", "#06B6D
 
 
 def inject_css() -> None:
-    """Inject the complete dark-theme CSS into the current Streamlit page.
+    """Inject the complete light-theme CSS into the current Streamlit page.
 
     Must be called at the top of the main render, after st.set_page_config().
     """
     st.markdown(
         f"""
 <style>
-/* ── Import Inter font ─────────────────────────────────────── */
+/* -- Import Inter font --------------------------------------------------- */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-/* ── Root variables ────────────────────────────────────────── */
+/* -- Root variables ------------------------------------------------------ */
 :root {{
-    --navy: {NAVY};
-    --navy-light: {NAVY_LIGHT};
-    --navy-card: {NAVY_CARD};
+    --background: {BACKGROUND};
+    --sidebar-bg: {SIDEBAR_BG};
+    --card-bg: {CARD_BG};
     --primary: {PRIMARY};
     --primary-hover: {PRIMARY_HOVER};
     --success: {SUCCESS};
@@ -65,22 +65,22 @@ def inject_css() -> None:
     --border: {BORDER};
 }}
 
-/* ── Global base ───────────────────────────────────────────── */
+/* -- Global base --------------------------------------------------------- */
 .stApp {{
-    background: linear-gradient(135deg, {NAVY} 0%, {NAVY_LIGHT} 100%) !important;
+    background-color: {BACKGROUND} !important;
     color: {TEXT} !important;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
 }}
 
-/* ── Scrollbar ─────────────────────────────────────────────── */
+/* -- Scrollbar ----------------------------------------------------------- */
 ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
-::-webkit-scrollbar-track {{ background: {NAVY}; }}
+::-webkit-scrollbar-track {{ background: {SIDEBAR_BG}; }}
 ::-webkit-scrollbar-thumb {{ background: {BORDER}; border-radius: 3px; }}
 ::-webkit-scrollbar-thumb:hover {{ background: {TEXT_MUTED}; }}
 
-/* ── Sidebar ───────────────────────────────────────────────── */
+/* -- Sidebar ------------------------------------------------------------- */
 section[data-testid="stSidebar"] {{
-    background: linear-gradient(180deg, {NAVY} 0%, {NAVY_LIGHT} 100%) !important;
+    background-color: {SIDEBAR_BG} !important;
     border-right: 1px solid {BORDER} !important;
 }}
 section[data-testid="stSidebar"] .stMarkdown p,
@@ -97,7 +97,7 @@ section[data-testid="stSidebar"] [data-testid="stMetricLabel"] {{
     color: {TEXT_MUTED} !important;
 }}
 
-/* ── Headers ───────────────────────────────────────────────── */
+/* -- Headers ------------------------------------------------------------- */
 h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {{
     color: {TEXT} !important;
     font-family: 'Inter', sans-serif !important;
@@ -105,7 +105,7 @@ h1, h2, h3, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {{
     letter-spacing: -0.02em;
 }}
 
-/* ── Text ──────────────────────────────────────────────────── */
+/* -- Text ---------------------------------------------------------------- */
 p, span, li, label, .stMarkdown, .stText {{
     color: {TEXT} !important;
 }}
@@ -113,12 +113,10 @@ p, span, li, label, .stMarkdown, .stText {{
     color: {TEXT_MUTED} !important;
 }}
 
-/* ── Metric cards ──────────────────────────────────────────── */
+/* -- Metric cards -------------------------------------------------------- */
 [data-testid="stMetric"] {{
-    background: rgba(30, 41, 59, 0.6) !important;
-    backdrop-filter: blur(12px) !important;
-    -webkit-backdrop-filter: blur(12px) !important;
-    border: 1px solid rgba(51, 65, 85, 0.5) !important;
+    background-color: {CARD_BG} !important;
+    border: 1px solid {BORDER} !important;
     border-radius: 12px !important;
     padding: 20px 16px !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
@@ -126,7 +124,7 @@ p, span, li, label, .stMarkdown, .stText {{
 [data-testid="stMetric"]:hover {{
     transform: translateY(-2px);
     border-color: {PRIMARY} !important;
-    box-shadow: 0 8px 25px rgba(37, 99, 235, 0.15) !important;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.1) !important;
 }}
 [data-testid="stMetricValue"] {{
     color: {TEXT} !important;
@@ -145,15 +143,14 @@ p, span, li, label, .stMarkdown, .stText {{
     font-weight: 600 !important;
 }}
 
-/* ── Glassmorphism containers ──────────────────────────────── */
+/* -- Containers ---------------------------------------------------------- */
 [data-testid="stExpander"],
 [data-testid="stForm"],
 div[data-testid="stVerticalBlockBorderWrapper"] > div:has(> [data-testid="stVerticalBlock"]) {{
     border-color: {BORDER} !important;
 }}
 [data-testid="stExpander"] {{
-    background: rgba(30, 41, 59, 0.4) !important;
-    backdrop-filter: blur(8px) !important;
+    background-color: {CARD_BG} !important;
     border: 1px solid {BORDER} !important;
     border-radius: 12px !important;
 }}
@@ -163,21 +160,20 @@ div[data-testid="stVerticalBlockBorderWrapper"] > div:has(> [data-testid="stVert
 
 /* bordered containers */
 div[data-testid="stVerticalBlockBorderWrapper"]:has(> div[style*="border"]) {{
-    background: rgba(30, 41, 59, 0.4) !important;
-    backdrop-filter: blur(8px) !important;
+    background-color: {CARD_BG} !important;
     border: 1px solid {BORDER} !important;
     border-radius: 12px !important;
     transition: all 0.3s ease !important;
 }}
 div[data-testid="stVerticalBlockBorderWrapper"]:has(> div[style*="border"]):hover {{
-    border-color: rgba(37, 99, 235, 0.4) !important;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2) !important;
+    border-color: rgba(37, 99, 235, 0.3) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
 }}
 
-/* ── Buttons ───────────────────────────────────────────────── */
+/* -- Buttons ------------------------------------------------------------- */
 .stButton > button {{
     background: linear-gradient(135deg, {PRIMARY} 0%, {PRIMARY_HOVER} 100%) !important;
-    color: {TEXT} !important;
+    color: #FFFFFF !important;
     border: none !important;
     border-radius: 8px !important;
     font-weight: 600 !important;
@@ -188,32 +184,32 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(> div[style*="border"]):hove
 }}
 .stButton > button:hover {{
     transform: translateY(-1px) !important;
-    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.35) !important;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25) !important;
 }}
 .stButton > button:active {{
     transform: translateY(0) !important;
 }}
 /* secondary / non-primary buttons */
 .stButton > button[kind="secondary"] {{
-    background: rgba(30, 41, 59, 0.6) !important;
+    background: {CARD_BG} !important;
     border: 1px solid {BORDER} !important;
+    color: {TEXT} !important;
 }}
 
-/* ── Form ──────────────────────────────────────────────────── */
+/* -- Form ---------------------------------------------------------------- */
 [data-testid="stForm"] {{
-    background: rgba(30, 41, 59, 0.4) !important;
-    backdrop-filter: blur(8px) !important;
+    background-color: {CARD_BG} !important;
     border: 1px solid {BORDER} !important;
     border-radius: 12px !important;
     padding: 24px !important;
 }}
 
-/* ── Inputs ────────────────────────────────────────────────── */
+/* -- Inputs -------------------------------------------------------------- */
 .stTextInput > div > div > input,
 .stTextArea > div > div > textarea,
 .stNumberInput > div > div > input,
 .stDateInput > div > div > input {{
-    background: rgba(15, 23, 42, 0.8) !important;
+    background-color: {BACKGROUND} !important;
     color: {TEXT} !important;
     border: 1px solid {BORDER} !important;
     border-radius: 8px !important;
@@ -222,23 +218,30 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(> div[style*="border"]):hove
 }}
 .stTextInput > div > div > input:focus,
 .stTextArea > div > div > textarea:focus {{
-    border-color: {PRIMARY} !important;
-    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2) !important;
+    border-color: {BORDER} !important;
+    box-shadow: 0 0 0 2px rgba(226, 232, 240, 0.4) !important;
+}}
+
+/* Error state inputs — red only */
+.stTextInput[data-stale="true"] > div > div > input,
+div[data-testid="stAlert"][data-baseweb="notification"] + .stTextInput > div > div > input {{
+    border-color: {DANGER} !important;
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2) !important;
 }}
 
 /* Selectbox / dropdown */
 .stSelectbox > div > div,
 .stMultiSelect > div > div {{
-    background: rgba(15, 23, 42, 0.8) !important;
+    background-color: {BACKGROUND} !important;
     border: 1px solid {BORDER} !important;
     border-radius: 8px !important;
     color: {TEXT} !important;
 }}
 
-/* ── Tabs ──────────────────────────────────────────────────── */
+/* -- Tabs ---------------------------------------------------------------- */
 .stTabs [data-baseweb="tab-list"] {{
     gap: 4px;
-    background: rgba(15, 23, 42, 0.6) !important;
+    background-color: {SIDEBAR_BG} !important;
     border-radius: 10px !important;
     padding: 4px !important;
 }}
@@ -253,11 +256,11 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(> div[style*="border"]):hove
 }}
 .stTabs [aria-selected="true"] {{
     background: {PRIMARY} !important;
-    color: {TEXT} !important;
+    color: #FFFFFF !important;
     font-weight: 600 !important;
 }}
 
-/* ── Dataframes ────────────────────────────────────────────── */
+/* -- Dataframes ---------------------------------------------------------- */
 [data-testid="stDataFrame"] {{
     border-radius: 12px !important;
     overflow: hidden !important;
@@ -267,33 +270,32 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(> div[style*="border"]):hove
     border-radius: 12px !important;
 }}
 
-/* ── Alert / Info / Success / Warning / Error boxes ────────── */
+/* -- Alert / Info / Success / Warning / Error boxes ---------------------- */
 [data-testid="stAlert"] {{
     border-radius: 10px !important;
     font-family: 'Inter', sans-serif !important;
-    backdrop-filter: blur(4px) !important;
 }}
 
-/* ── Dividers ──────────────────────────────────────────────── */
+/* -- Dividers ------------------------------------------------------------ */
 hr {{
     border-color: {BORDER} !important;
     opacity: 0.5;
 }}
 
-/* ── Code blocks ───────────────────────────────────────────── */
+/* -- Code blocks --------------------------------------------------------- */
 pre, code, .stCode {{
-    background: rgba(15, 23, 42, 0.9) !important;
+    background-color: {SIDEBAR_BG} !important;
     border: 1px solid {BORDER} !important;
     border-radius: 8px !important;
-    color: #E2E8F0 !important;
+    color: {TEXT} !important;
 }}
 
-/* ── Spinner ───────────────────────────────────────────────── */
+/* -- Spinner ------------------------------------------------------------- */
 [data-testid="stSpinner"] > div {{
     border-top-color: {PRIMARY} !important;
 }}
 
-/* ── Radio buttons in sidebar ──────────────────────────────── */
+/* -- Radio buttons in sidebar -------------------------------------------- */
 .stRadio > div {{
     gap: 2px !important;
 }}
@@ -304,26 +306,26 @@ pre, code, .stCode {{
     cursor: pointer !important;
 }}
 .stRadio > div > label:hover {{
-    background: rgba(37, 99, 235, 0.1) !important;
+    background: rgba(37, 99, 235, 0.05) !important;
 }}
 .stRadio > div > label[data-checked="true"] {{
-    background: rgba(37, 99, 235, 0.2) !important;
+    background: rgba(37, 99, 235, 0.1) !important;
 }}
 
-/* ── Progress bar ──────────────────────────────────────────── */
+/* -- Progress bar -------------------------------------------------------- */
 .stProgress > div > div > div {{
     background: linear-gradient(90deg, {PRIMARY} 0%, {SUCCESS} 100%) !important;
     border-radius: 4px !important;
 }}
 
-/* ── JSON viewer ───────────────────────────────────────────── */
+/* -- JSON viewer --------------------------------------------------------- */
 [data-testid="stJson"] {{
-    background: rgba(15, 23, 42, 0.9) !important;
+    background-color: {SIDEBAR_BG} !important;
     border: 1px solid {BORDER} !important;
     border-radius: 8px !important;
 }}
 
-/* ── Smooth transitions for page content ───────────────────── */
+/* -- Smooth transitions for page content --------------------------------- */
 .main .block-container {{
     animation: fadeIn 0.3s ease-in-out;
     padding-top: 2rem !important;
@@ -334,35 +336,9 @@ pre, code, .stCode {{
     to {{ opacity: 1; transform: translateY(0); }}
 }}
 
-/* ── Pulse animation for alert dots ────────────────────────── */
-@keyframes pulse {{
-    0%, 100% {{ opacity: 1; }}
-    50% {{ opacity: 0.5; }}
-}}
-.pulse-dot {{
-    animation: pulse 2s ease-in-out infinite;
-}}
-
-/* ── Skeleton loading shimmer ──────────────────────────────── */
-@keyframes shimmer {{
-    0% {{ background-position: -200% 0; }}
-    100% {{ background-position: 200% 0; }}
-}}
-.skeleton {{
-    background: linear-gradient(
-        90deg,
-        rgba(30, 41, 59, 0.4) 25%,
-        rgba(51, 65, 85, 0.4) 50%,
-        rgba(30, 41, 59, 0.4) 75%
-    );
-    background-size: 200% 100%;
-    animation: shimmer 1.5s ease-in-out infinite;
-    border-radius: 8px;
-}}
-
-/* ── Tooltip dark theme ────────────────────────────────────── */
+/* -- Tooltip ------------------------------------------------------------- */
 [data-testid="stTooltipContent"] {{
-    background: {NAVY_CARD} !important;
+    background: {CARD_BG} !important;
     color: {TEXT} !important;
     border: 1px solid {BORDER} !important;
     border-radius: 8px !important;

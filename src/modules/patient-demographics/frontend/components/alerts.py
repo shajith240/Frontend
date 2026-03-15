@@ -1,4 +1,4 @@
-"""Alerts component — dark-themed severity cards with acknowledge buttons.
+"""Alerts component — severity cards with acknowledge buttons.
 
 Fetches unacknowledged alerts, color-codes them by severity, provides
 type filtering and per-alert acknowledgement.
@@ -123,22 +123,10 @@ def render(db: DatabaseConnection) -> None:
     """
     total_active = _count_active_alerts(db)
 
-    st.markdown(
-        f'<p style="font-size:0.8rem; font-weight:600; color:#94A3B8; '
-        f'text-transform:uppercase; letter-spacing:0.05em; margin-bottom:12px;">'
-        f"Active Alerts ({total_active})</p>",
-        unsafe_allow_html=True,
-    )
+    st.caption(f"ACTIVE ALERTS ({total_active})")
 
     if total_active == 0:
-        st.markdown(
-            """<div style="background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.2);
-                    border-radius:10px; padding:16px; text-align:center;">
-                <span style="color:#10B981; font-size:0.85rem; font-weight:600;">
-                    ✓ No active alerts. All clear.</span>
-            </div>""",
-            unsafe_allow_html=True,
-        )
+        st.success("No active alerts. All clear.")
         return
 
     # Type filter
@@ -171,7 +159,6 @@ def render(db: DatabaseConnection) -> None:
 
     for idx, alert in enumerate(alerts):
         severity = alert.get("severity", "low")
-        color = _SEVERITY_COLORS.get(severity, "#64748B")
         alert_id = alert.get("alert_id", f"unknown-{idx}")
 
         created_at = alert.get("created_at")
@@ -185,15 +172,8 @@ def render(db: DatabaseConnection) -> None:
             header_col, action_col = st.columns([5, 1])
 
             with header_col:
-                st.markdown(
-                    f"""<div style="display:flex; align-items:center; gap:8px;">
-                        <span style="font-size:0.65rem; font-weight:700; color:{color};
-                            text-transform:uppercase; background:{color}20;
-                            padding:2px 8px; border-radius:4px;">{severity}</span>
-                        <span style="font-weight:600; font-size:0.85rem;">
-                            {alert.get('title', 'Alert')}</span>
-                    </div>""",
-                    unsafe_allow_html=True,
+                st.write(
+                    f"**[{severity.upper()}]** {alert.get('title', 'Alert')}"
                 )
                 st.write(alert.get("message", "No details available."))
                 st.caption(
