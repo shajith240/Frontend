@@ -23,13 +23,13 @@ load_dotenv()
 
 # Page registry — maps display names to (page_key, icon)
 PAGES: dict[str, tuple[str, str]] = {
-    "Dashboard": ("home", "\u2302"),
-    "Register Patient": ("register_patient", "\u25CB"),
-    "Visit History": ("visit_history", "\u2261"),
-    "Appointments": ("appointments", "\u25A1"),
-    "Referrals": ("referrals", "\u2194"),
-    "API Explorer": ("api_explorer", "\u26A1"),
-    "DBMS Demo": ("dbms_demo", "\u2211"),
+    "Dashboard": ("home", ">"),
+    "Register Patient": ("register_patient", "+"),
+    "Visit History": ("visit_history", "="),
+    "Appointments": ("appointments", "#"),
+    "Referrals": ("referrals", "~"),
+    "API Explorer": ("api_explorer", "/"),
+    "DBMS Demo": ("dbms_demo", "*"),
 }
 
 
