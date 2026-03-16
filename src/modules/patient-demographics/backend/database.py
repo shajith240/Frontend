@@ -33,7 +33,11 @@ class DatabaseConnection:
             ConnectionError: If all retry attempts are exhausted.
             ValueError: If MONGODB_URI is not set in the environment.
         """
-        uri = os.getenv(MONGO_URI_KEY)
+        try:
+            import streamlit as st
+            uri = st.secrets.get(MONGO_URI_KEY) or os.getenv(MONGO_URI_KEY)
+        except Exception:
+            uri = os.getenv(MONGO_URI_KEY)
         if not uri:
             raise ValueError(
                 f"'{MONGO_URI_KEY}' is not set. Add it to your .env file."
@@ -118,7 +122,11 @@ def ping_database() -> bool:
     Returns:
         True if the server responds to a ping, False otherwise.
     """
-    uri = os.getenv(MONGO_URI_KEY)
+    try:
+        import streamlit as st
+        uri = st.secrets.get(MONGO_URI_KEY) or os.getenv(MONGO_URI_KEY)
+    except Exception:
+        uri = os.getenv(MONGO_URI_KEY)
     if not uri:
         return False
 
