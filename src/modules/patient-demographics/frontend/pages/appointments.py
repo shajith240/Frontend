@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 import streamlit as st
-from dotenv import load_dotenv
 from pymongo.errors import PyMongoError
 
 _MODULE_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -23,7 +22,7 @@ from backend.crud import create_appointment
 from backend.database import DatabaseConnection
 from backend.models import Appointment, AppointmentStatus
 
-load_dotenv()
+
 
 
 def _make_appointment_id(db: DatabaseConnection) -> str:

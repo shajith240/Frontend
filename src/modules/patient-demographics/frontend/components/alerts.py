@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 import streamlit as st
-from dotenv import load_dotenv
 from pymongo.errors import PyMongoError
 
 _MODULE_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -20,7 +19,7 @@ if str(_MODULE_ROOT) not in sys.path:
 from backend.database import DatabaseConnection
 from backend.models import AlertSeverity, AlertType
 
-load_dotenv()
+
 
 # Severity to color mapping
 _SEVERITY_COLORS: dict[str, str] = {

@@ -18,8 +18,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 import streamlit as st
-from dotenv import load_dotenv
-from pymongo import ASCENDING
 from pymongo.errors import PyMongoError
 
 _MODULE_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -65,7 +63,7 @@ from database.queries.aggregations import (
     run_all_queries,
 )
 
-load_dotenv()
+
 
 
 # ============================================================================
@@ -876,7 +874,7 @@ def render(db: DatabaseConnection) -> None:
     Args:
         db: Active DatabaseConnection.
     """
-    st.subheader("DBMS Concepts")
+    st.subheader("DBMS Demo")
     st.caption(
         "Normalization, Indexes, Constraints, Views (aggregation pipelines), "
         "Triggers, Stored Procedures, and Audit Logging."

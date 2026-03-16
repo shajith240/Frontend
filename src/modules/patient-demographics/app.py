@@ -13,7 +13,6 @@ from typing import Any
 
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 from dotenv import load_dotenv
 from pymongo.errors import PyMongoError
@@ -36,15 +35,11 @@ from frontend.pages import (
 )
 from frontend.styles import (
     inject_css,
-    PLOTLY_LAYOUT,
+    get_plotly_layout,
+    get_theme_colors,
     PLOTLY_CONFIG,
     CHART_COLORS,
-    SUCCESS,
-    WARNING,
-    DANGER,
     PRIMARY,
-    TEXT,
-    TEXT_MUTED,
 )
 
 load_dotenv()
@@ -52,8 +47,7 @@ load_dotenv()
 
 # -- Cached data fetchers (TTL 30s) -------------------------------------------
 
-@st.cache_data(ttl=30, show_spinner=False)
-def _get_dashboard_stats(_db_id: int, _db: DatabaseConnection) -> dict[str, Any]:
+def _get_dashboard_stats(_db: DatabaseConnection) -> dict[str, Any]:
     """Fetch all dashboard metrics in one pass.
 
     Args:
@@ -114,8 +108,7 @@ def _get_dashboard_stats(_db_id: int, _db: DatabaseConnection) -> dict[str, Any]
     return stats
 
 
-@st.cache_data(ttl=30, show_spinner=False)
-def _get_visits_by_month(_db_id: int, _db: DatabaseConnection) -> list[dict]:
+def _get_visits_by_month(_db: DatabaseConnection) -> list[dict]:
     """Aggregate visit counts grouped by month for the bar chart.
 
     Args:
@@ -149,8 +142,7 @@ def _get_visits_by_month(_db_id: int, _db: DatabaseConnection) -> list[dict]:
         return []
 
 
-@st.cache_data(ttl=30, show_spinner=False)
-def _get_diagnosis_distribution(_db_id: int, _db: DatabaseConnection) -> list[dict]:
+def _get_diagnosis_distribution(_db: DatabaseConnection) -> list[dict]:
     """Aggregate top diagnoses for the donut chart.
 
     Args:
@@ -162,7 +154,7 @@ def _get_diagnosis_distribution(_db_id: int, _db: DatabaseConnection) -> list[di
     """
     try:
         pipeline = [
-            {"$match": {"diagnosis": {"$ne": None, "$ne": ""}}},
+            {"$match": {"diagnosis": {"$nin": [None, ""]}}},
             {"$group": {"_id": "$diagnosis", "count": {"$sum": 1}}},
             {"$sort": {"count": -1}},
             {"$limit": 8},
@@ -173,8 +165,7 @@ def _get_diagnosis_distribution(_db_id: int, _db: DatabaseConnection) -> list[di
         return []
 
 
-@st.cache_data(ttl=30, show_spinner=False)
-def _get_recent_patients(_db_id: int, _db: DatabaseConnection) -> list[dict]:
+def _get_recent_patients(_db: DatabaseConnection) -> list[dict]:
     """Fetch 8 most recently registered patients.
 
     Args:
@@ -207,24 +198,62 @@ def _get_recent_patients(_db_id: int, _db: DatabaseConnection) -> list[dict]:
         return []
 
 
-@st.cache_data(ttl=30, show_spinner=False)
-def _get_recent_activity(_db_id: int, _db: DatabaseConnection) -> list[dict]:
-    """Fetch the 10 most recent audit log entries for the activity feed.
+def _get_recent_visits(_db: DatabaseConnection) -> list[dict]:
+    """Fetch the 8 most recent visits with patient and physician names.
+
+    Uses $lookup to join patients and physicians collections.
 
     Args:
-        _db_id: Cache key.
         _db: Active DatabaseConnection.
 
     Returns:
-        List of audit log dicts.
+        List of visit dicts with joined patient/physician names.
     """
     try:
-        return list(
-            _db.get_collection("audit_logs")
-            .find({}, {"_id": 0})
-            .sort("timestamp", -1)
-            .limit(10)
-        )
+        pipeline = [
+            {"$sort": {"visit_date": -1}},
+            {"$limit": 8},
+            {
+                "$lookup": {
+                    "from": "patients",
+                    "localField": "patient_id",
+                    "foreignField": "patient_id",
+                    "as": "patient",
+                }
+            },
+            {"$unwind": {"path": "$patient", "preserveNullAndEmptyArrays": True}},
+            {
+                "$lookup": {
+                    "from": "physicians",
+                    "localField": "physician_id",
+                    "foreignField": "physician_id",
+                    "as": "physician",
+                }
+            },
+            {"$unwind": {"path": "$physician", "preserveNullAndEmptyArrays": True}},
+            {
+                "$project": {
+                    "_id": 0,
+                    "visit_id": 1,
+                    "visit_date": 1,
+                    "patient_name": {
+                        "$concat": ["$patient.first_name", " ", "$patient.last_name"]
+                    },
+                    "physician_name": {
+                        "$concat": [
+                            "Dr. ",
+                            "$physician.first_name",
+                            " ",
+                            "$physician.last_name",
+                        ]
+                    },
+                    "reason": 1,
+                    "diagnosis": 1,
+                    "status": 1,
+                }
+            },
+        ]
+        return list(_db.get_collection("visits").aggregate(pipeline))
     except PyMongoError:
         return []
 
@@ -268,24 +297,29 @@ def _render_charts(db: DatabaseConnection) -> None:
     Args:
         db: Active DatabaseConnection.
     """
-    db_id = id(db)
+
     left, right = st.columns(2)
 
     with left:
         st.subheader("Visits by Month")
 
-        monthly = _get_visits_by_month(db_id, db)
+        monthly = _get_visits_by_month(db)
         if monthly:
             df = pd.DataFrame(monthly)
             fig = px.bar(
                 df, x="month", y="count",
                 color_discrete_sequence=[PRIMARY],
             )
-            fig.update_layout(**PLOTLY_LAYOUT)
             fig.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(family="Inter, sans-serif"),
+                margin=dict(l=40, r=20, t=40, b=40),
                 xaxis_title="", yaxis_title="Visits",
                 height=320,
                 bargap=0.3,
+                xaxis=dict(gridcolor="rgba(0,0,0,0)"),
+                yaxis=dict(gridwidth=1),
             )
             fig.update_traces(marker_line_width=0, marker_cornerradius=4)
             st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
@@ -295,7 +329,7 @@ def _render_charts(db: DatabaseConnection) -> None:
     with right:
         st.subheader("Diagnosis Distribution")
 
-        diagnoses = _get_diagnosis_distribution(db_id, db)
+        diagnoses = _get_diagnosis_distribution(db)
         if diagnoses:
             df = pd.DataFrame(diagnoses)
             fig = px.pie(
@@ -303,13 +337,27 @@ def _render_charts(db: DatabaseConnection) -> None:
                 hole=0.55,
                 color_discrete_sequence=CHART_COLORS,
             )
-            fig.update_layout(**PLOTLY_LAYOUT)
-            fig.update_layout(height=320, showlegend=True)
+            fig.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(family="Inter, sans-serif"),
+                height=380,
+                showlegend=True,
+                legend=dict(
+                    orientation="h",
+                    yanchor="top",
+                    y=-0.05,
+                    xanchor="center",
+                    x=0.5,
+                    title=dict(text="Diagnoses"),
+                ),
+                margin=dict(t=20, b=100, l=10, r=10),
+            )
             fig.update_traces(
                 textposition="inside",
                 textinfo="percent",
                 textfont_size=11,
-                marker=dict(line=dict(color="#FFFFFF", width=2)),
+                marker=dict(line=dict(color="rgba(0,0,0,0)", width=0)),
             )
             st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
         else:
@@ -324,7 +372,7 @@ def _render_recent_patients(db: DatabaseConnection) -> None:
     """
     st.subheader("Recent Patients")
 
-    patients = _get_recent_patients(id(db), db)
+    patients = _get_recent_patients(db)
     if not patients:
         st.info("No patients registered yet.")
         return
@@ -345,29 +393,30 @@ def _render_recent_patients(db: DatabaseConnection) -> None:
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
-def _render_activity_feed(db: DatabaseConnection) -> None:
-    """Display the last 10 audit log entries as a tabular activity feed.
+def _render_recent_visits(db: DatabaseConnection) -> None:
+    """Display the most recent clinical visits as a compact table.
 
     Args:
         db: Active DatabaseConnection.
     """
-    st.subheader("Activity Feed")
+    st.subheader("Recent Visits")
 
-    logs = _get_recent_activity(id(db), db)
-    if not logs:
-        st.info("No activity recorded yet.")
+    visits = _get_recent_visits(db)
+    if not visits:
+        st.info("No visits recorded yet.")
         return
 
     rows = []
-    for log in logs:
-        ts = log.get("timestamp")
-        ts_str = ts.strftime("%H:%M:%S") if hasattr(ts, "strftime") else ""
+    for v in visits:
+        vd = v.get("visit_date")
+        date_str = vd.strftime("%d %b %Y") if hasattr(vd, "strftime") else str(vd)
         rows.append({
-            "Time": ts_str,
-            "Action": str(log.get("action", "")).upper(),
-            "Collection": log.get("collection_name", ""),
-            "Document": log.get("document_id", ""),
-            "User": log.get("performed_by", "system"),
+            "Date": date_str,
+            "Patient": v.get("patient_name", "Unknown"),
+            "Physician": v.get("physician_name", "N/A"),
+            "Reason": v.get("reason", ""),
+            "Diagnosis": v.get("diagnosis", "—") or "—",
+            "Status": str(v.get("status", "")).title(),
         })
 
     st.dataframe(rows, use_container_width=True, hide_index=True)
@@ -381,23 +430,15 @@ def _render_home(db: DatabaseConnection) -> None:
     """
     nav_l, nav_r = st.columns([3, 1])
     with nav_l:
-        st.markdown(
-            '<h2 style="margin:0; font-size:1.4rem;">Dashboard</h2>',
-            unsafe_allow_html=True,
-        )
+        st.markdown("## Dashboard")
     with nav_r:
         now = datetime.now().strftime("%d %b %Y, %I:%M %p")
-        st.markdown(
-            f'<p style="text-align:right; color:#64748B; font-size:0.8rem; '
-            f'margin:8px 0 0 0;">{now}</p>',
-            unsafe_allow_html=True,
-        )
+        st.caption(now)
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
     # Metric cards
-    with st.spinner("Loading metrics..."):
-        stats = _get_dashboard_stats(id(db), db)
+    stats = _get_dashboard_stats(db)
     _render_metric_cards(stats)
 
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
@@ -407,12 +448,12 @@ def _render_home(db: DatabaseConnection) -> None:
 
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
-    # Bottom section: recent patients + activity feed
+    # Bottom section: recent patients + recent visits
     left, right = st.columns([3, 2])
     with left:
         _render_recent_patients(db)
     with right:
-        _render_activity_feed(db)
+        _render_recent_visits(db)
 
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
@@ -489,12 +530,9 @@ def main() -> None:
 
     # Footer
     st.divider()
-    st.markdown(
-        '<p style="text-align:center; font-size:0.7rem; color:#64748B; '
-        'letter-spacing:0.05em;">'
+    st.caption(
         "Module 1 -- Patient Demographics & Visit History | "
-        "IIT(ISM) Dhanbad | DBMS Project 2025</p>",
-        unsafe_allow_html=True,
+        "IIT(ISM) Dhanbad | DBMS Project 2025"
     )
 
 

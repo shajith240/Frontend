@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Optional
 
 import streamlit as st
-from dotenv import load_dotenv
 
 _MODULE_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_MODULE_ROOT) not in sys.path:
@@ -21,7 +20,7 @@ from backend.crud import create_patient
 from backend.database import DatabaseConnection
 from backend.models import Address, Gender, InsuranceInfo, Patient
 
-load_dotenv()
+
 
 # Pre-compiled validation patterns
 _PHONE_PATTERN = re.compile(r"^\+91\d{10}$")
@@ -70,7 +69,12 @@ def render(db: DatabaseConnection) -> None:
     if st.session_state.get("reg_success_id"):
         pid = st.session_state["reg_success_id"]
         st.success(f"Patient Registered Successfully: {pid}")
-        if st.button("Register Another Patient", type="primary"):
+        st.markdown("")  # spacer
+        if st.button(
+            "Register a New Patient",
+            key="reg_new_patient_btn",
+            use_container_width=True,
+        ):
             st.session_state.pop("reg_success_id", None)
             st.session_state.pop("reg_errors", None)
             st.rerun()
@@ -81,7 +85,7 @@ def render(db: DatabaseConnection) -> None:
 
     with st.form("patient_registration_form", clear_on_submit=False):
         # Personal Information
-        st.caption("PERSONAL INFORMATION")
+        st.caption("Personal Information")
         col1, col2 = st.columns(2)
 
         with col1:
@@ -118,7 +122,7 @@ def render(db: DatabaseConnection) -> None:
                 st.error(field_errors["email"])
 
         # Address section
-        st.caption("ADDRESS")
+        st.caption("Address")
         addr_col1, addr_col2 = st.columns(2)
 
         with addr_col1:
@@ -130,7 +134,7 @@ def render(db: DatabaseConnection) -> None:
             postal_code = st.text_input("Postal Code", placeholder="Postal code")
 
         # Insurance section
-        st.caption("INSURANCE DETAILS")
+        st.caption("Insurance Details")
         ins_col1, ins_col2 = st.columns(2)
 
         with ins_col1:

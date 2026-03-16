@@ -10,7 +10,6 @@ from typing import Any, Optional
 
 import pandas as pd
 import streamlit as st
-from dotenv import load_dotenv
 
 _MODULE_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_MODULE_ROOT) not in sys.path:
@@ -20,7 +19,7 @@ from backend.crud import get_patient_by_id, search_patients
 from backend.database import DatabaseConnection
 from database.queries.aggregations import get_patient_full_profile
 
-load_dotenv()
+
 
 
 def _render_patient_card(patient: dict) -> None:
@@ -225,11 +224,7 @@ def render(db: DatabaseConnection) -> None:
         )
 
     if not search_query.strip():
-        st.markdown(
-            '<p style="text-align:center; color:#64748B; font-size:0.8rem; '
-            'margin-top:40px;">Enter a Patient ID (PAT-YYYY-NNN) or patient name above.</p>',
-            unsafe_allow_html=True,
-        )
+        st.caption("Enter a Patient ID (PAT-YYYY-NNN) or patient name above.")
         return
 
     query = search_query.strip()

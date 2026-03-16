@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Optional
 
 import streamlit as st
-from dotenv import load_dotenv
 from pymongo.errors import PyMongoError
 
 _MODULE_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -19,17 +18,17 @@ if str(_MODULE_ROOT) not in sys.path:
 
 from backend.database import DatabaseConnection
 
-load_dotenv()
+
 
 # Page registry — maps display names to (page_key, icon)
 PAGES: dict[str, tuple[str, str]] = {
-    "Dashboard": ("home", ">"),
-    "Register Patient": ("register_patient", "+"),
-    "Visit History": ("visit_history", "="),
-    "Appointments": ("appointments", "#"),
-    "Referrals": ("referrals", "~"),
-    "API Explorer": ("api_explorer", "/"),
-    "DBMS Demo": ("dbms_demo", "*"),
+    "Dashboard": ("home", "📊"),
+    "Register Patient": ("register_patient", "➕"),
+    "Visit History": ("visit_history", "📋"),
+    "Appointments": ("appointments", "📅"),
+    "Referrals": ("referrals", "🔄"),
+    "API Explorer": ("api_explorer", "⚡"),
+    "DBMS Demo": ("dbms_demo", "🛠️"),
 }
 
 
@@ -113,19 +112,8 @@ def render(db: DatabaseConnection) -> Optional[str]:
     """
     with st.sidebar:
         # Module branding
-        st.markdown(
-            """
-            <div style="text-align:center; padding: 8px 0 4px 0;">
-                <h3 style="margin:4px 0 0 0; font-size:1.1rem; font-weight:700;
-                    letter-spacing:-0.02em; color:#1E293B;">Patient Demographics</h3>
-                <p style="color:#64748B; font-size:0.7rem; margin:2px 0 0 0;
-                    text-transform:uppercase; letter-spacing:0.08em;">
-                    Module 1 -- Visit History
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.markdown("### Patient Demographics")
+        st.caption("PATIENT MANAGEMENT SYSTEM")
 
         st.divider()
 
@@ -187,14 +175,6 @@ def render(db: DatabaseConnection) -> Optional[str]:
         st.code("http://localhost:8000/api", language=None)
 
         # Version tag at bottom
-        st.markdown(
-            """<div style="text-align:center; padding:16px 0 8px 0; margin-top:auto;">
-                <span style="font-size:0.65rem; color:#64748B; font-weight:500;
-                    letter-spacing:0.05em;">
-                    v1.0 -- IIT(ISM) Dhanbad -- DBMS Project 2025
-                </span>
-            </div>""",
-            unsafe_allow_html=True,
-        )
+        st.caption("v1.0 -- IIT(ISM) Dhanbad -- DBMS Project 2025")
 
     return selected_key

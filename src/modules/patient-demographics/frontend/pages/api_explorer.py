@@ -11,8 +11,6 @@ from pathlib import Path
 from typing import Any
 
 import streamlit as st
-from dotenv import load_dotenv
-from pymongo.errors import PyMongoError
 
 _MODULE_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_MODULE_ROOT) not in sys.path:
@@ -22,7 +20,7 @@ from backend.crud import get_patient_by_id, get_patient_visits, search_patients
 from backend.database import DatabaseConnection
 from database.queries.aggregations import get_patient_full_profile
 
-load_dotenv()
+
 
 # API base URL
 _BASE_URL = "http://localhost:8000"

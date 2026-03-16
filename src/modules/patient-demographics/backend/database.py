@@ -42,10 +42,11 @@ class DatabaseConnection:
         last_error: Optional[Exception] = None
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                self._client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+                client: MongoClient = MongoClient(uri, serverSelectionTimeoutMS=5000)
                 # Force an actual network round-trip to verify the connection.
-                self._client.admin.command("ping")
-                self._db = self._client[DB_NAME]
+                client.admin.command("ping")
+                self._client = client
+                self._db = client.get_database(DB_NAME)
                 print(f"Connected to MongoDB Atlas — {DB_NAME}")
                 self._create_indexes()
                 return
@@ -60,15 +61,21 @@ class DatabaseConnection:
                 else:
                     print(f"Connection attempt {attempt}/{MAX_RETRIES} failed: {exc}.")
 
+        if isinstance(last_error, BaseException):
+            raise ConnectionError(
+                f"Could not connect to MongoDB Atlas after {MAX_RETRIES} attempts."
+            ) from last_error
+        
         raise ConnectionError(
             f"Could not connect to MongoDB Atlas after {MAX_RETRIES} attempts."
-        ) from last_error
+        )
 
     def disconnect(self) -> None:
         """Close the MongoDB client connection if it is open."""
-        if self._client is not None:
+        client = self._client
+        if client is not None:
             try:
-                self._client.close()
+                client.close()
             except Exception as exc:
                 print(f"Error while closing MongoDB connection: {exc}")
             finally:
@@ -87,11 +94,12 @@ class DatabaseConnection:
         Raises:
             RuntimeError: If called before a successful connect().
         """
-        if self._db is None:
+        db = self._db
+        if db is None:
             raise RuntimeError(
                 "No active database connection. Call connect() first."
             )
-        return self._db[name]
+        return db.get_collection(name)
 
     def _create_indexes(self) -> None:
         """Create indexes on the patients collection after connecting."""

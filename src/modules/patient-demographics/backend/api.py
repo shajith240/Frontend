@@ -10,7 +10,6 @@ Run standalone:
 Or via the project's run.sh script which starts both FastAPI and Streamlit.
 """
 
-import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
