@@ -4,7 +4,10 @@ from components.sidebar import sidebar
 from components.charts import patient_line_chart, appointment_donut_chart
 import matplotlib.pyplot as plt
 
+# ---------- Configuration & Mock Data ----------
 # All categories and their modules
+# LOGIC: This dictionary acts as the mock database for the dashboard's structure. 
+# In a full MariaDB implementation, this metadata could be fetched from a `system_categories` table.
 CATEGORIES = {
     "A - Patient Clinical Data": {
         "title": "Patient Clinical Data Management",
@@ -126,7 +129,10 @@ CATEGORIES = {
     }
 }
 
+# ---------- Main Dashboard Logic ----------
 def doctor_dashboard():
+    # LOGIC: Initialize session state variables for routing between the main view, 
+    # category view, and module detail view.
     st.session_state.setdefault("view", "main")
     st.session_state.setdefault("selected_category", None)
     st.session_state.setdefault("selected_module", None)
@@ -151,6 +157,7 @@ def doctor_dashboard():
         pass
 
     # ROUTER
+    # LOGIC: Streamlit runs top-to-bottom. This checks the current state and renders the appropriate UI.
     if st.session_state.view == "category":
         show_category_view()
     elif st.session_state.view == "module":
@@ -164,6 +171,8 @@ def show_main_dashboard():
     st.divider()
 
     # Top metrics
+    # LOGIC: Create a 4-column layout for top-level stats.
+    # TODO: Connect these to aggregate SQL queries (e.g. SELECT COUNT(*) FROM prescriptions)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("👥 Total Patients", "12,450", "+12% vs last month")
     c2.metric("⚠️ Active Alerts", "320", "-5% vs last month")
@@ -173,6 +182,7 @@ def show_main_dashboard():
     st.divider()
 
     # Main content area
+    # LOGIC: Split the layout into a main section (2/3 width) and a sidebar section (1/3 width)
     main_col, side_col = st.columns([2, 1])
     
     with main_col:
@@ -180,6 +190,8 @@ def show_main_dashboard():
         st.markdown("[All patients →](#)")
         
         # Patient 1 - Highlighted
+        # LOGIC: Each patient row uses its own columns for alignment.
+        # Ensure widget keys are unique (e.g., 'loc1', 'menu1')
         with st.container():
             p_col1, p_col2, p_col3 = st.columns([1, 5, 1])
             with p_col1:
@@ -237,6 +249,7 @@ def show_main_dashboard():
         st.divider()
         
         # Charts section
+        # LOGIC: Render charts imported from components.charts
         chart_col1, chart_col2 = st.columns(2)
         
         with chart_col1:
@@ -252,6 +265,7 @@ def show_main_dashboard():
         st.markdown("[View All](#)")
         
         # Activity 1
+        # TODO: Fetch these dynamically from a database activity log table.
         st.markdown("👤 **New patient registration: John Smith**")
         st.caption("🕐 2 min ago • Reception")
         st.markdown("---")
@@ -280,6 +294,7 @@ def show_main_dashboard():
     # System Categories Section
     st.markdown("## System Categories (A-I)")
     
+    # LOGIC: Loop through the CATEGORIES dictionary to dynamically generate summary cards.
     cols = st.columns(3)
     for idx, (key, cat) in enumerate(CATEGORIES.items()):
         with cols[idx % 3]:
@@ -296,6 +311,8 @@ def show_main_dashboard():
                     st.markdown(f"⚠️ {cat['stats']['alerts']}")
                     st.caption("Alerts")
                 
+                # LOGIC: When clicked, update the session state to the selected category
+                # and trigger a re-run so the router displays the show_category_view().
                 if st.button("View Details →", key=f"cat_{idx}", use_container_width=True):
                     st.session_state.selected_category = key
                     st.session_state.view = "category"
@@ -303,6 +320,7 @@ def show_main_dashboard():
                 st.markdown("---")
 
 def show_category_view():
+    # LOGIC: Retrieve which category was clicked from the session state.
     cat_key = st.session_state.selected_category
     category = CATEGORIES[cat_key]
     
@@ -327,6 +345,7 @@ def show_category_view():
     st.markdown("## Modules")
     
     # Module cards in grid
+    # LOGIC: Iterate through the specific modules list inside the selected category.
     cols = st.columns(3)
     for idx, module in enumerate(category['modules']):
         code, name, desc, tables, records = module
@@ -340,6 +359,7 @@ def show_category_view():
                 mcol1.metric("Tables", tables)
                 mcol2.metric("Records", f"{records:,}")
                 
+                # LOGIC: Similar routing logic as categories, but now drilling down into a module.
                 if st.button("→", key=f"mod_{code}", use_container_width=True):
                     st.session_state.selected_module = module
                     st.session_state.view = "module"
@@ -347,11 +367,13 @@ def show_category_view():
                 st.markdown("---")
     
     st.divider()
+    # LOGIC: Resetting view to 'main' acts as a "Back" button.
     if st.button("⬅ Back to Dashboard"):
         st.session_state.view = "main"
         st.rerun()
 
 def show_module_detail():
+    # LOGIC: Unpack the selected module data from the session state.
     code, name, desc, tables, records = st.session_state.selected_module
     cat_key = st.session_state.selected_category
     
@@ -361,6 +383,7 @@ def show_module_detail():
     st.markdown(f"*{desc}*")
     
     # Tabs
+    # LOGIC: st.radio acts as an in-page tab selector.
     tab = st.radio("", ["🏠 Home", "🔗 ER Diagram", "📋 Tables", "🔍 SQL Query", "⚡ Triggers", "📊 Output"], horizontal=True)
     st.divider()
     
@@ -386,6 +409,7 @@ def show_module_detail():
     
     elif tab == "📋 Tables":
         st.markdown("### Database Tables")
+        # TODO: Replace hardcoded table data with dynamically fetched schema details from MariaDB.
         st.table({
             "Table Name": ["patients", "insurance", "emergency_contacts", "admissions", "visit_history"],
             "Records": [12500, 8900, 6400, 15200, 22100],
@@ -394,6 +418,7 @@ def show_module_detail():
     
     elif tab == "🔍 SQL Query":
         st.markdown("### Sample SQL Queries")
+        # LOGIC: Display query block. Ensure syntax matches MariaDB 5.5 standards.
         st.code(f"""
 -- Query for {name}
 SELECT p.patient_id, p.name, p.age, i.insurance_type
@@ -405,6 +430,7 @@ LIMIT 100;
 """, language="sql")
         
         if st.button("▶️ Execute Query"):
+            # TODO: Logic to connect to backend and execute the above query goes here.
             st.success("Query executed successfully! 1,234 rows returned.")
     
     elif tab == "⚡ Triggers":
@@ -431,6 +457,7 @@ END;
         st.info("📅 Registration Date: January 08, 2026")
         
         st.markdown("#### Generated Records")
+        # LOGIC: Renders a JSON dictionary nicely in the UI.
         st.json({
             "patient_id": "PT-2024-001234",
             "name": "John Doe",
@@ -440,6 +467,7 @@ END;
         })
     
     st.divider()
+    # LOGIC: Step back up the routing hierarchy.
     if st.button("⬅ Back to Modules"):
         st.session_state.view = "category"
         st.rerun()
