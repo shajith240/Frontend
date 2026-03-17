@@ -5,6 +5,8 @@ from components.charts import patient_line_chart, appointment_donut_chart
 
 def admin_dashboard():
     # ---------- Session Defaults ----------
+    # Initialize session state variables to persist user selection across app reruns.
+    # setdefault ensures these are only set if they don't already exist.
     st.session_state.setdefault("view", "dashboard")
     st.session_state.setdefault("selected_category", None)
 
@@ -26,6 +28,7 @@ def admin_dashboard():
     st.markdown("## 🏥 Admin Dashboard")
     
     # Top metrics row
+    # Creates two columns of equal width (1:1 ratio) for the top section layout
     col1, col2 = st.columns([1, 1])
     
     with col1:
@@ -33,6 +36,7 @@ def admin_dashboard():
         st.markdown("### Patient Statistics")
         metric_cols = st.columns(2)
         with metric_cols[0]:
+            # TODO: Query the database (e.g., SELECT COUNT(*) FROM patients) to make this dynamic
             st.metric("Total", "990", help="Total registered patients")
         with metric_cols[1]:
             # Gender breakdown
@@ -50,6 +54,10 @@ def admin_dashboard():
         # Your Patients Today
         st.markdown("### Your Patients Today")
         st.markdown("##### [All patients →](#)")
+
+        # LOGIC: Mock data structure representing a database result set.
+        # TODO: Replace this list of tuples with an API call fetching today's appointments 
+        # from your MariaDB instance, joined with patient and doctor details.
         
         # Patient list with doctor names
         patients_data = [
@@ -57,9 +65,13 @@ def admin_dashboard():
             ("11:00am", "Dakota Smith", "Dr. Martinez", "Diagnostic: Stroke"),
             ("11:30am", "John Lane", "Dr. Johnson", "Diagnostic: Liver")
         ]
+
+        # LOGIC: Iterate through the dataset, unpacking the tuple into distinct variables,
+        # and dynamically generating UI containers for each patient record.
         
         for time, patient, doctor, diagnosis in patients_data:
             with st.container():
+                # Relative sizing for internal columns: middle column gets 3x space
                 p_col1, p_col2, p_col3 = st.columns([1, 3, 1])
                 with p_col1:
                     st.markdown(f"**{time}**")
@@ -67,6 +79,7 @@ def admin_dashboard():
                     st.markdown(f"**{patient}**")
                     st.caption(f"👨‍⚕️ {doctor} • {diagnosis}")
                 with p_col3:
+                    # Unique key generated using the patient's name to prevent Streamlit widget ID conflicts
                     st.button("⋮", key=f"menu_{patient}")
                 st.divider()
 
@@ -127,6 +140,7 @@ def admin_dashboard():
     with col7:
         st.markdown("### Overall Appointments")
         # Simple bar chart for hourly appointments
+        # LOGIC: Chart generation using Matplotlib.
         import matplotlib.pyplot as plt
         hours = ["8:00", "9:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"]
         appointments = [12, 8, 15, 18, 6, 10, 16, 8, 15, 10, 17]
@@ -149,6 +163,10 @@ def admin_dashboard():
     ]
     
     appt_cols = st.columns(3)
+
+    # LOGIC: Enumerate is used here to get both an index (idx) and the data tuple.
+    # The index is crucial for generating unique widget keys (like call_0, call_1).
+    
     for idx, (name, service, time, price) in enumerate(appointments_today):
         with appt_cols[idx]:
             st.markdown(f"**{name}**")
