@@ -185,6 +185,7 @@ def health_check() -> dict[str, Any]:
             "collections": {},
         }
 
+# stats route
 
 @app.get("/api/stats", response_model=StatsResponse, tags=["System"])
 def get_stats() -> dict[str, int]:
@@ -214,6 +215,7 @@ def get_stats() -> dict[str, int]:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Error fetching stats: {exc}")
 
+# patient list route
 
 @app.get("/api/patients", tags=["Patients"])
 def list_patients(
@@ -244,6 +246,7 @@ def list_patients(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Error searching patients: {exc}")
 
+#patient detail route
 
 @app.get("/api/patients/{patient_id}", tags=["Patients"])
 def get_patient(patient_id: str) -> dict[str, Any]:
@@ -275,6 +278,7 @@ def get_patient(patient_id: str) -> dict[str, Any]:
         )
 
 
+# visit route
 @app.get("/api/patients/{patient_id}/visits", tags=["Patients"])
 def get_visits_for_patient(
     patient_id: str,
@@ -310,11 +314,9 @@ def get_visits_for_patient(
         )
 
 
-@app.get(
-    "/api/patients/{patient_id}/summary",
-    response_model=PatientSummary,
-    tags=["Patients"],
-)
+# patient summary routes
+
+@app.get("/api/patients/{patient_id}/summary",response_model=PatientSummary,tags=["Patients"],)
 def get_patient_summary(patient_id: str) -> dict[str, Any]:
     """Return a lightweight patient summary (name, age, blood group, active alerts).
 
@@ -359,6 +361,8 @@ def get_patient_summary(patient_id: str) -> dict[str, Any]:
         )
 
 
+# department routes
+
 @app.get("/api/departments", tags=["Reference Data"])
 def list_departments() -> list[dict[str, Any]]:
     """Return all hospital departments.
@@ -382,6 +386,7 @@ def list_departments() -> list[dict[str, Any]]:
             detail=f"Error fetching departments: {exc}",
         )
 
+# physicians route
 
 @app.get("/api/physicians", tags=["Reference Data"])
 def list_physicians() -> list[dict[str, Any]]:
@@ -436,9 +441,4 @@ def list_physicians() -> list[dict[str, Any]]:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(
-        "backend.api:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-    )
+    uvicorn.run("backend.api:app",host="0.0.0.0",port=8000,reload=True)
