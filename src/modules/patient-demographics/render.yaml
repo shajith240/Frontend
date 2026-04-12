@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: patient-demographics-api
+    runtime: python
+    rootDir: src/modules/patient-demographics
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MONGODB_URI
+        sync: false
