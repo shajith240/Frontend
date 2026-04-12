@@ -410,11 +410,14 @@ Built a Patient Demographics & Visit History Database managing patients, physici
 ## Deployment Status
 
 - **Streamlit UI:** DEPLOYED at `https://dbms-project-module1.streamlit.app/`
-- **FastAPI (REST endpoints):** NOT YET DEPLOYED — runs locally on `localhost:8000`
+- **FastAPI (REST endpoints):** DEPLOYED at `https://patient-demographics-api.onrender.com`
+- **Swagger Docs (interactive):** `https://patient-demographics-api.onrender.com/docs`
+
+> Note: Render free tier sleeps after 15 min inactivity. First request after idle takes ~30 seconds to wake up.
 
 ## Available Endpoints
 
-Base URL (local): `http://localhost:8000`
+Base URL: `https://patient-demographics-api.onrender.com`
 
 | Method | Endpoint | Purpose |
 |---|---|---|
@@ -435,7 +438,7 @@ Other modules use this as FK in their own tables to query patient data via our A
 
 **Example cross-module call:**
 ```
-GET http://<our-api-host>/api/patients/PAT-2024-001/summary
+GET https://patient-demographics-api.onrender.com/api/patients/PAT-2024-001/summary
 ```
 
 Returns:
